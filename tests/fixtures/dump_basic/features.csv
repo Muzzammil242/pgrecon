@@ -1,0 +1,5 @@
+"FEATURE","DETAIL","CNT"
+"materialized_views","schema total",0
+"db_links","owned or public",1
+"triggers","schema total",2
+"partitioned_tables","schema total",0
