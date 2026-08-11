@@ -1,3 +1,5 @@
+default_install_hook_types: [pre-commit, commit-msg]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -32,3 +34,13 @@ repos:
         entry: uv run python tools/check_ascii.py
         language: system
         pass_filenames: false
+      - id: import-boundaries
+        name: import-boundaries
+        entry: uv run python tools/check_boundaries.py
+        language: system
+        pass_filenames: false
+      - id: commit-msg-style
+        name: commit-msg-style
+        entry: uv run python tools/check_commit.py
+        language: system
+        stages: [commit-msg]

@@ -32,5 +32,11 @@ jobs:
       - name: ASCII policy
         run: uv run python tools/check_ascii.py
 
+      - name: Import boundaries
+        run: uv run python tools/check_boundaries.py
+
+      - name: Commit message style
+        run: uv run python tools/check_commit.py --head
+
       - name: Tests
         run: uv run pytest --cov --cov-fail-under=85
