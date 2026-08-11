@@ -41,6 +41,22 @@ Commit style follows the PostgreSQL and Linux kernel projects, not
 - SQL uses bound parameters. Identifier quoting goes through a shared
   helper.
 
+## How changes land
+
+Pull requests are the transport; history stays linear. Merge commits
+are disabled on the repository.
+
+- A series whose commits each follow the style above lands by rebase
+  and merge, keeping every commit and its author intact.
+- A messy series lands by squash and merge, with the final message
+  written to the same standard.
+- CI validates the head commit message of every pull request with
+  tools/check_commit.py, along with lint, types, tests, and the ASCII
+  and import-boundary checks.
+
+Contributor authorship is always preserved: your commits land under
+your name.
+
 ## Adding a rule
 
 Every rule ships with fixture tests: sample input in tests/fixtures and
