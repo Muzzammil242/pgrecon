@@ -23,3 +23,7 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   of spooling a broken dump.
 - pgrecon script --source-version picks the right variant from the
   Oracle version; --legacy remains as an explicit override.
+- Rule engine with the first fifteen assessment rules over the
+  inventory, and a report command printing findings by severity in
+  text or JSON. Effort points are a provisional weight sum until the
+  effort model lands.
