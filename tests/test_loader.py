@@ -22,6 +22,38 @@ def test_counts_match_fixture(loaded: tuple[dict[str, int], Path]) -> None:
     assert counts["features"] == 4
     assert counts["dependencies"] == 2
     assert counts["ddl"] == 4
+    assert counts["constraints"] == 3
+    assert counts["constraint_columns"] == 3
+    assert counts["check_conditions"] == 1
+    assert counts["indexes"] == 2
+    assert counts["index_columns"] == 2
+    assert counts["index_expressions"] == 1
+    assert counts["part_tables"] == 1
+    assert counts["part_key_columns"] == 1
+    assert counts["synonyms"] == 1
+    assert counts["triggers"] == 1
+
+
+def test_structured_facts_are_queryable(loaded: tuple[dict[str, int], Path]) -> None:
+    _, db = loaded
+    conn = sqlite3.connect(db)
+    # The foreign key names its referenced constraint: the FK graph works.
+    row = conn.execute(
+        "SELECT ref_owner, ref_constraint, delete_rule FROM constraints"
+        " WHERE constraint_name = 'FK_EMP_DEPT'"
+    ).fetchone()
+    assert row == ("HR", "PK_DEPT", "NO ACTION")
+    # Function-based index expression carries its text unescaped.
+    expr = conn.execute(
+        "SELECT expression FROM index_expressions WHERE index_name = 'EMP_UPPER_IX'"
+    ).fetchone()[0]
+    assert expr == 'UPPER("NAME")'
+    # Interval partitioning is visible as a structured fact.
+    row = conn.execute(
+        "SELECT partitioning_type, interval FROM part_tables WHERE table_name = 'SALES'"
+    ).fetchone()
+    assert row[0] == "RANGE"
+    assert "NUMTOYMINTERVAL" in row[1]
 
 
 def test_columns_are_typed(loaded: tuple[dict[str, int], Path]) -> None:

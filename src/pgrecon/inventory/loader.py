@@ -87,6 +87,109 @@ CSV_TABLES: dict[str, tuple[str, dict[str, str]]] = {
             "REFERENCED_TYPE": "ref_type",
         },
     ),
+    "constraints.csv": (
+        "constraints",
+        {
+            "OWNER": "owner",
+            "CONSTRAINT_NAME": "constraint_name",
+            "TABLE_NAME": "table_name",
+            "CONSTRAINT_TYPE": "type",
+            "STATUS": "status",
+            "R_OWNER": "ref_owner",
+            "R_CONSTRAINT_NAME": "ref_constraint",
+            "DELETE_RULE": "delete_rule",
+        },
+    ),
+    "constraint_columns.csv": (
+        "constraint_columns",
+        {
+            "OWNER": "owner",
+            "CONSTRAINT_NAME": "constraint_name",
+            "COLUMN_NAME": "column_name",
+            "POSITION": "position",
+        },
+    ),
+    "check_conditions.csv": (
+        "check_conditions",
+        {
+            "OWNER": "owner",
+            "CONSTRAINT_NAME": "constraint_name",
+            "CONDITION": "condition",
+            "TRUNCATED": "truncated",
+        },
+    ),
+    "indexes.csv": (
+        "indexes",
+        {
+            "OWNER": "owner",
+            "INDEX_NAME": "index_name",
+            "TABLE_NAME": "table_name",
+            "INDEX_TYPE": "index_type",
+            "UNIQUENESS": "uniqueness",
+            "STATUS": "status",
+            "GENERATED": "generated",
+        },
+    ),
+    "index_columns.csv": (
+        "index_columns",
+        {
+            "OWNER": "owner",
+            "INDEX_NAME": "index_name",
+            "COLUMN_NAME": "column_name",
+            "COLUMN_POSITION": "position",
+        },
+    ),
+    "index_expressions.csv": (
+        "index_expressions",
+        {
+            "OWNER": "owner",
+            "INDEX_NAME": "index_name",
+            "COLUMN_POSITION": "position",
+            "COLUMN_EXPRESSION": "expression",
+            "TRUNCATED": "truncated",
+        },
+    ),
+    "part_tables.csv": (
+        "part_tables",
+        {
+            "OWNER": "owner",
+            "TABLE_NAME": "table_name",
+            "PARTITIONING_TYPE": "partitioning_type",
+            "SUBPARTITIONING_TYPE": "subpartitioning_type",
+            "PARTITION_COUNT": "partition_count",
+            "INTERVAL": "interval",
+        },
+    ),
+    "part_key_columns.csv": (
+        "part_key_columns",
+        {
+            "OWNER": "owner",
+            "NAME": "table_name",
+            "COLUMN_NAME": "column_name",
+            "COLUMN_POSITION": "position",
+        },
+    ),
+    "synonyms.csv": (
+        "synonyms",
+        {
+            "OWNER": "owner",
+            "SYNONYM_NAME": "synonym_name",
+            "TABLE_OWNER": "table_owner",
+            "TABLE_NAME": "table_name",
+            "DB_LINK": "db_link",
+        },
+    ),
+    "triggers.csv": (
+        "triggers",
+        {
+            "OWNER": "owner",
+            "TRIGGER_NAME": "trigger_name",
+            "TRIGGER_TYPE": "trigger_type",
+            "TRIGGERING_EVENT": "triggering_event",
+            "TABLE_NAME": "table_name",
+            "STATUS": "status",
+        },
+    ),
 }
 
 INT_COLUMNS = {
@@ -98,6 +201,8 @@ INT_COLUMNS = {
     "data_scale",
     "line",
     "count",
+    "partition_count",
+    "truncated",
 }
 
 DDL_MARKER = re.compile(r"^-- PGRECON_OBJECT (\S+) ([^\s.]+)\.(\S+)\s*$", re.MULTILINE)
