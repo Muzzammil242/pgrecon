@@ -1,5 +1,6 @@
 """Command-line interface."""
 
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Annotated
@@ -9,6 +10,11 @@ import typer
 from pgrecon import __version__
 from pgrecon.extract import script_text
 from pgrecon.inventory import load_dump
+
+# sqlglot logs a warning whenever exotic syntax makes it fall back to an
+# opaque statement; the outcome is already recorded in the inventory, so
+# the console noise helps nobody.
+logging.getLogger("sqlglot").setLevel(logging.ERROR)
 
 app = typer.Typer(
     help="Migration reconnaissance for PostgreSQL.",
