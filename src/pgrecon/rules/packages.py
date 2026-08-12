@@ -19,7 +19,9 @@ first_sub AS (
        AND (UPPER(text) LIKE '%FUNCTION %' OR UPPER(text) LIKE '%PROCEDURE %')
      GROUP BY owner, name, type
 )
-SELECT s.owner, s.name, s.type,
+SELECT s.owner,
+       s.name || CASE WHEN s.type = 'PACKAGE BODY' THEN ' (body)' ELSE '' END,
+       s.type,
        COUNT(*) || ' package-level declaration(s), first at line '
        || MIN(s.line) AS detail
   FROM source s

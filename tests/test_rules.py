@@ -138,7 +138,7 @@ def test_package_state_fires_on_body_not_spec(
         )
     conn.commit()
     findings = [f for f in run_rules(db) if f.rule_id == "R-PKG-01"]
-    assert [f.name for f in findings] == ["STATEFUL_PKG"]
+    assert [f.name for f in findings] == ["STATEFUL_PKG (body)"]
     assert "2 package-level declaration(s)" in findings[0].detail
 
 
