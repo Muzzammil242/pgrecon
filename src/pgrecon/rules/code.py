@@ -5,19 +5,7 @@ what the spec allows until the ANTLR deep-parse pass lands. Matching is
 done per line against all_source text, deduplicated per object.
 """
 
-from pgrecon.rules import Rule, Severity, sql_detector
-
-
-def _source_grep(pattern: str, label: str) -> str:
-    # One finding per object that matches anywhere in its source, with
-    # the first matching line number as the detail.
-    return (
-        "SELECT owner, name, type,"
-        f" '{label} (first at line ' || MIN(line) || ')' AS detail"
-        " FROM source WHERE UPPER(text) LIKE UPPER('%" + pattern + "%')"
-        " GROUP BY owner, name, type"
-    )
-
+from pgrecon.rules import Rule, Severity, source_grep, sql_detector
 
 RULES = [
     Rule(
@@ -49,7 +37,26 @@ RULES = [
             " pg_background."
         ),
         detector=sql_detector(
-            _source_grep("AUTONOMOUS_TRANSACTION", "PRAGMA AUTONOMOUS_TRANSACTION")
+            source_grep("AUTONOMOUS_TRANSACTION", "PRAGMA AUTONOMOUS_TRANSACTION")
+        ),
+    ),
+    Rule(
+        id="R-TRG-03",
+        title="Sequence-assigned key via trigger",
+        category="triggers",
+        severity=Severity.MEDIUM,
+        effort=0.5,
+        remedy=(
+            "The pre-12c idiom of filling a key from a sequence in a"
+            " BEFORE INSERT trigger becomes a plain identity column or a"
+            " DEFAULT nextval() in PostgreSQL; the trigger disappears."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, type,"
+            " 'NEXTVAL in trigger (first at line ' || MIN(line) || ')'"
+            " AS detail FROM source"
+            " WHERE type = 'TRIGGER' AND UPPER(text) LIKE '%NEXTVAL%'"
+            " GROUP BY owner, name, type"
         ),
     ),
     Rule(
@@ -63,7 +70,7 @@ RULES = [
             " and error handling differ. Each dynamic statement needs a"
             " manual port and a test."
         ),
-        detector=sql_detector(_source_grep("EXECUTE IMMEDIATE", "EXECUTE IMMEDIATE")),
+        detector=sql_detector(source_grep("EXECUTE IMMEDIATE", "EXECUTE IMMEDIATE")),
     ),
     Rule(
         id="R-SRC-02",
@@ -75,7 +82,7 @@ RULES = [
             "PL/pgSQL has no GOTO. The control flow must be restructured"
             " with loops, exceptions, or early returns."
         ),
-        detector=sql_detector(_source_grep("GOTO ", "GOTO")),
+        detector=sql_detector(source_grep("GOTO ", "GOTO")),
     ),
     Rule(
         id="R-SRC-03",
@@ -87,27 +94,7 @@ RULES = [
             "PL/pgSQL has no BULK COLLECT; array_agg into an array or a"
             " plain set-based statement usually replaces the whole loop."
         ),
-        detector=sql_detector(_source_grep("BULK COLLECT", "BULK COLLECT")),
-    ),
-    Rule(
-        id="R-SRC-04",
-        title="CONNECT BY hierarchical query",
-        category="sql",
-        severity=Severity.MEDIUM,
-        effort=2.0,
-        remedy=(
-            "Rewrite as a recursive CTE (WITH RECURSIVE). LEVEL,"
-            " SYS_CONNECT_BY_PATH, and ORDER SIBLINGS BY all need manual"
-            " equivalents."
-        ),
-        detector=sql_detector(
-            "SELECT owner, name, type, detail FROM ("
-            + _source_grep("CONNECT BY", "CONNECT BY")
-            + " UNION ALL"
-            " SELECT owner, name, 'VIEW DDL',"
-            " 'CONNECT BY in view definition' AS detail FROM ddl"
-            " WHERE type = 'VIEW' AND UPPER(ddl) LIKE '%CONNECT BY%')"
-        ),
+        detector=sql_detector(source_grep("BULK COLLECT", "BULK COLLECT")),
     ),
     Rule(
         id="R-SRC-06",
@@ -121,7 +108,7 @@ RULES = [
             " a client result set. Interfaces returning SYS_REFCURSOR to"
             " applications usually become set-returning functions."
         ),
-        detector=sql_detector(_source_grep("REF CURSOR", "REF CURSOR")),
+        detector=sql_detector(source_grep("REF CURSOR", "REF CURSOR")),
     ),
     Rule(
         id="R-SRC-07",
@@ -144,19 +131,58 @@ RULES = [
         ),
     ),
     Rule(
-        id="R-SRC-05",
-        title="Old-style outer join (+)",
-        category="sql",
+        id="R-SRC-12",
+        title="Implicit cursor attributes",
+        category="plsql",
         severity=Severity.LOW,
         effort=0.5,
         remedy=(
-            "The (+) operator does not exist in PostgreSQL. Rewrite as"
-            " ANSI LEFT or RIGHT JOIN; semantics match except for a few"
-            " multi-condition corner cases worth testing."
+            "SQL%ROWCOUNT and friends become GET DIAGNOSTICS or the FOUND"
+            " variable in PL/pgSQL; %ISOPEN has no direct equivalent for"
+            " implicit cursors."
         ),
         detector=sql_detector(
-            "SELECT owner, name, 'VIEW DDL', 'uses (+) outer join'"
-            " FROM ddl WHERE type = 'VIEW' AND ddl LIKE '%(+)%'"
+            "SELECT owner, name, type,"
+            " 'SQL% attribute (first at line ' || MIN(line) || ')'"
+            " AS detail FROM source"
+            " WHERE UPPER(text) LIKE '%SQL\\%%' ESCAPE '\\'"
+            " GROUP BY owner, name, type"
+        ),
+    ),
+    Rule(
+        id="R-SRC-13",
+        title="RAISE_APPLICATION_ERROR",
+        category="plsql",
+        severity=Severity.LOW,
+        effort=0.5,
+        remedy=(
+            "Map to RAISE EXCEPTION with USING ERRCODE. The -20000 range"
+            " of custom error numbers disappears; applications that parse"
+            " those numbers need a translation table."
+        ),
+        detector=sql_detector(
+            source_grep("RAISE_APPLICATION_ERROR", "RAISE_APPLICATION_ERROR")
+        ),
+    ),
+    Rule(
+        id="R-SRC-14",
+        title="Transaction control inside PL/SQL",
+        category="plsql",
+        severity=Severity.MEDIUM,
+        effort=1.5,
+        remedy=(
+            "PostgreSQL functions cannot COMMIT or ROLLBACK; only"
+            " procedures called outside a transaction block can. Each"
+            " routine that controls transactions must become a procedure"
+            " or hand that control back to the caller."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, type,"
+            " 'COMMIT or ROLLBACK (first at line ' || MIN(line) || ')'"
+            " AS detail FROM source"
+            " WHERE UPPER(text) LIKE '%COMMIT;%'"
+            " OR UPPER(text) LIKE '%ROLLBACK;%'"
+            " GROUP BY owner, name, type"
         ),
     ),
 ]

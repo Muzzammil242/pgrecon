@@ -22,7 +22,7 @@ def fired(db: Path, rule_id: str) -> list[str]:
 
 def test_registry_has_unique_ids_and_real_remedies() -> None:
     rules = all_rules()
-    assert len(rules) >= 15
+    assert len(rules) >= 40
     assert len({r.id for r in rules}) == len(rules)
     for rule in rules:
         assert rule.remedy and len(rule.remedy) > 40, rule.id
@@ -76,19 +76,19 @@ def test_source_grep_dedupes_per_object(
     assert "line 2" in findings[0].detail
 
 
-def test_db_link_feature_fires_only_when_present(
+def test_db_link_fires_per_link_with_target(
     inventory: tuple[sqlite3.Connection, Path],
 ) -> None:
     conn, db = inventory
+    assert fired(db, "R-OBJ-01") == []
     conn.execute(
-        "INSERT INTO features (feature, detail, count)"
-        " VALUES ('db_links', 'owned or public', 0)"
+        "INSERT INTO db_links (owner, db_link, username, host) VALUES"
+        " ('HR', 'ERP_LINK', 'ERP_RO', '//erp-db:1521/PROD')"
     )
     conn.commit()
-    assert fired(db, "R-OBJ-01") == []
-    conn.execute("UPDATE features SET count = 2 WHERE feature = 'db_links'")
-    conn.commit()
-    assert len(fired(db, "R-OBJ-01")) == 1
+    findings = [f for f in run_rules(db) if f.rule_id == "R-OBJ-01"]
+    assert [f.name for f in findings] == ["ERP_LINK"]
+    assert "erp-db" in findings[0].detail
 
 
 def test_connect_by_found_in_source_and_view_ddl(
@@ -189,6 +189,57 @@ def test_reserved_word_column(inventory: tuple[sqlite3.Connection, Path]) -> Non
     )
     conn.commit()
     assert fired(db, "R-TYPE-05") == ["ACCOUNTS.USER"]
+
+
+def test_transaction_control_fires_precisely(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'POSTER', 'PROCEDURE', 8, '    COMMIT;')"
+    )
+    conn.execute(
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'HARMLESS', 'PROCEDURE', 3,"
+        " '  -- transaction COMMITTED elsewhere')"
+    )
+    conn.commit()
+    assert fired(db, "R-SRC-14") == ["POSTER"]
+
+
+def test_sequence_key_trigger_fires_only_for_triggers(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'TRG_ID', 'TRIGGER', 3,"
+        " '  SELECT s.NEXTVAL INTO :NEW.id FROM dual;')"
+    )
+    conn.execute(
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'LOADER', 'PROCEDURE', 5, '  v := s.NEXTVAL;')"
+    )
+    conn.commit()
+    assert fired(db, "R-TRG-03") == ["TRG_ID"]
+
+
+def test_invalid_object_and_opaque_parse(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO objects (owner, name, type, status) VALUES"
+        " ('HR', 'DEAD_PKG', 'PACKAGE', 'INVALID')"
+    )
+    conn.execute(
+        "INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality)"
+        " VALUES ('HR', 'ODD_TABLE', 'TABLE', 'CREATE ...', 1, 'fallback')"
+    )
+    conn.commit()
+    assert fired(db, "R-OBJ-08") == ["DEAD_PKG"]
+    assert fired(db, "R-DDL-02") == ["ODD_TABLE"]
 
 
 def test_summary_counts_and_effort(tmp_path: Path, dump_basic: Path) -> None:

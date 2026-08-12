@@ -16,8 +16,9 @@ RULES = [
         ),
         extension="postgres_fdw",
         detector=sql_detector(
-            "SELECT feature, detail, 'FEATURE', count || ' database link(s)'"
-            " FROM features WHERE feature = 'db_links' AND count > 0"
+            "SELECT owner, db_link, 'DATABASE LINK',"
+            " 'to ' || COALESCE(host, '?') || ' as ' || COALESCE(username, '?')"
+            " FROM db_links"
             " UNION ALL"
             " SELECT owner, synonym_name, 'SYNONYM', 'points over ' || db_link"
             " FROM synonyms WHERE db_link IS NOT NULL AND db_link <> ''"
@@ -110,6 +111,56 @@ RULES = [
         ),
     ),
     Rule(
+        id="R-OBJ-07",
+        title="Virtual Private Database policy",
+        category="objects",
+        severity=Severity.HIGH,
+        effort=4.0,
+        remedy=(
+            "VPD policies rewrite queries through a policy function."
+            " PostgreSQL row-level security expresses most of them as"
+            " declarative policies, but each policy function must be"
+            " translated by hand and its session context re-plumbed."
+        ),
+        detector=sql_detector(
+            "SELECT feature, detail, 'FEATURE', count || ' VPD policy(ies)'"
+            " FROM features WHERE feature = 'vpd_policies' AND count > 0"
+        ),
+    ),
+    Rule(
+        id="R-OBJ-08",
+        title="Invalid object",
+        category="objects",
+        severity=Severity.INFO,
+        effort=0.0,
+        remedy=(
+            "Already broken before any migration. Decide per object:"
+            " fix it, or exclude it from scope in writing so the estimate"
+            " does not pay for dead code."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, type, 'status ' || status FROM objects"
+            " WHERE status IS NOT NULL AND status <> 'VALID'"
+        ),
+    ),
+    Rule(
+        id="R-VIEW-01",
+        title="FORCE view",
+        category="objects",
+        severity=Severity.LOW,
+        effort=0.3,
+        remedy=(
+            "PostgreSQL cannot create a view whose dependencies are"
+            " missing. FORCE views usually signal broken dependencies or"
+            " circular creation order; both need resolving before the"
+            " schema replays."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, type, 'created with FORCE' FROM ddl"
+            " WHERE type = 'VIEW' AND UPPER(ddl) LIKE '%FORCE%VIEW%'"
+        ),
+    ),
+    Rule(
         id="R-DDL-01",
         title="DDL the parser could not read",
         category="extraction",
@@ -123,6 +174,22 @@ RULES = [
         detector=sql_detector(
             "SELECT owner, name, type, COALESCE(SUBSTR(parse_error, 1, 80),"
             " 'parse failed') FROM ddl WHERE parse_ok = 0"
+        ),
+    ),
+    Rule(
+        id="R-DDL-02",
+        title="DDL parsed only as an opaque command",
+        category="extraction",
+        severity=Severity.INFO,
+        effort=0.3,
+        remedy=(
+            "The Oracle grammar accepted the statement without building a"
+            " real syntax tree, which usually marks exotic constructs the"
+            " deep-parse pass should revisit."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, type, 'opaque parse' FROM ddl"
+            " WHERE parse_quality = 'fallback'"
         ),
     ),
 ]

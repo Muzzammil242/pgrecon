@@ -128,6 +128,23 @@ RULES = [
         ),
     ),
     Rule(
+        id="R-IDX-03",
+        title="Domain index",
+        category="indexes",
+        severity=Severity.HIGH,
+        effort=3.0,
+        remedy=(
+            "Domain indexes are usually Oracle Text. Full-text search maps"
+            " to tsvector with a GIN index, or pg_trgm for fuzzy matching;"
+            " query syntax and ranking both change."
+        ),
+        extension="pg_trgm",
+        detector=sql_detector(
+            "SELECT owner, index_name, 'INDEX', 'DOMAIN on ' || table_name"
+            " FROM indexes WHERE index_type = 'DOMAIN'"
+        ),
+    ),
+    Rule(
         id="R-STAT-01",
         title="Table without optimizer statistics",
         category="statistics",
