@@ -21,8 +21,11 @@
 --
 -- Usage:
 --   1. Create an empty working directory and cd into it.
---   2. sqlplus readonly_user@service @pgrecon_extract_legacy.sql SCHEMA_NAME
---   3. Send the resulting folder of .csv and .sql files back.
+--   2. Make the client spool UTF-8 so names in any language survive:
+--        export NLS_LANG=.AL32UTF8      (Linux and macOS)
+--        set NLS_LANG=.AL32UTF8         (Windows)
+--   3. sqlplus readonly_user@service @pgrecon_extract_legacy.sql SCHEMA_NAME
+--   4. Send the resulting folder of .csv and .sql files back.
 --
 -- Review notice: every statement below reads ALL_* dictionary views
 -- or DUAL only. Nothing is written to the database.
@@ -331,9 +334,13 @@ BEGIN
                     l_text := SUBSTR(l_text, l_pos + 1);
                 END IF;
                 l_line := REPLACE(l_line, CHR(13), '');
-                WHILE LENGTH(l_line) > 240 LOOP
-                    DBMS_OUTPUT.PUT_LINE(SUBSTR(l_line, 1, 240));
-                    l_line := SUBSTR(l_line, 241);
+                -- Wrap by bytes, not characters: the pre-10.2 output
+                -- limit is 255 bytes and multibyte names count triple.
+                -- SUBSTRB may pad a split character with spaces, which
+                -- is acceptable for assessment text.
+                WHILE LENGTHB(l_line) > 240 LOOP
+                    DBMS_OUTPUT.PUT_LINE(SUBSTRB(l_line, 1, 240));
+                    l_line := SUBSTRB(l_line, 241);
                 END LOOP;
                 DBMS_OUTPUT.PUT_LINE(NVL(l_line, ' '));
             END LOOP;
@@ -359,12 +366,12 @@ BEGIN
                  AND constraint_type = 'C'
                  AND table_name NOT LIKE 'BIN$%'
                ORDER BY constraint_name) LOOP
-        l_cond := SUBSTR(c.search_condition, 1, 200);
+        l_cond := SUBSTRB(c.search_condition, 1, 180);
         l_cond := REPLACE(REPLACE(REPLACE(l_cond, '"', '""'),
                           CHR(13), ' '), CHR(10), ' ');
         DBMS_OUTPUT.PUT_LINE('"' || c.owner || '","' || c.constraint_name
             || '","' || l_cond || '",'
-            || CASE WHEN LENGTH(l_cond) >= 200 THEN 1 ELSE 0 END);
+            || CASE WHEN LENGTHB(l_cond) >= 180 THEN 1 ELSE 0 END);
     END LOOP;
 END;
 /
@@ -381,12 +388,12 @@ BEGIN
                 FROM all_ind_expressions
                WHERE index_owner = UPPER('&schema')
                ORDER BY index_name, column_position) LOOP
-        l_expr := SUBSTR(e.column_expression, 1, 200);
+        l_expr := SUBSTRB(e.column_expression, 1, 180);
         l_expr := REPLACE(REPLACE(REPLACE(l_expr, '"', '""'),
                           CHR(13), ' '), CHR(10), ' ');
         DBMS_OUTPUT.PUT_LINE('"' || e.index_owner || '","' || e.index_name
             || '",' || e.column_position || ',"' || l_expr || '",'
-            || CASE WHEN LENGTH(l_expr) >= 200 THEN 1 ELSE 0 END);
+            || CASE WHEN LENGTHB(l_expr) >= 180 THEN 1 ELSE 0 END);
     END LOOP;
 END;
 /

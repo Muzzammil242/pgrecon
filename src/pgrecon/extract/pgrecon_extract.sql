@@ -12,8 +12,11 @@
 --
 -- Usage:
 --   1. Create an empty working directory and cd into it.
---   2. sqlplus readonly_user@service @pgrecon_extract.sql SCHEMA_NAME
---   3. Send the resulting folder of .csv and .sql files back for
+--   2. Make the client spool UTF-8 so names in any language survive:
+--        export NLS_LANG=.AL32UTF8      (Linux and macOS)
+--        set NLS_LANG=.AL32UTF8         (Windows)
+--   3. sqlplus readonly_user@service @pgrecon_extract.sql SCHEMA_NAME
+--   4. Send the resulting folder of .csv and .sql files back for
 --      assessment.
 --
 -- Review notice: this script is intentionally plain so that a DBA can

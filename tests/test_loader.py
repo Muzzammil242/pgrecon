@@ -121,6 +121,40 @@ def test_parse_quality_is_recorded(loaded: tuple[dict[str, int], Path]) -> None:
     assert quality is None
 
 
+def test_non_utf8_dump_degrades_and_warns(tmp_path: Path) -> None:
+    # The dump_korean fixture is deliberately CP949-encoded, the way a
+    # Korean Windows client without NLS_LANG set would spool it.
+    fixture = Path(__file__).parent / "fixtures" / "dump_korean"
+    db = tmp_path / "inv.db"
+    counts = load_dump(fixture, db)
+    assert counts["objects"] == 1
+    conn = sqlite3.connect(db)
+    warnings = conn.execute(
+        "SELECT key FROM meta WHERE key LIKE 'encoding_warning:%'"
+    ).fetchall()
+    assert {w[0] for w in warnings} == {
+        "encoding_warning:meta.csv",
+        "encoding_warning:objects.csv",
+    }
+    # The name survives as replacement characters, never as a crash.
+    name = conn.execute("SELECT name FROM objects").fetchone()[0]
+    assert "\N{REPLACEMENT CHARACTER}" in name
+
+
+def test_explicit_encoding_preserves_korean(tmp_path: Path) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "dump_korean"
+    db = tmp_path / "inv.db"
+    load_dump(fixture, db, encoding="cp949")
+    conn = sqlite3.connect(db)
+    name = conn.execute("SELECT name FROM objects").fetchone()[0]
+    korean_customer = "\uace0\uac1d"
+    assert name == korean_customer
+    warnings = conn.execute(
+        "SELECT COUNT(*) FROM meta WHERE key LIKE 'encoding_warning:%'"
+    ).fetchone()[0]
+    assert warnings == 0
+
+
 def test_missing_dump_dir_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         load_dump(tmp_path / "nope", tmp_path / "inventory.db")

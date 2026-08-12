@@ -12,6 +12,7 @@ recorded, never dropped: unparseable DDL is itself an assessment signal.
 """
 
 import csv
+import io
 import re
 import sqlite3
 from collections.abc import Iterator
@@ -254,20 +255,43 @@ def open_db(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def load_dump(dump_dir: Path, db_path: Path) -> dict[str, int]:
-    """Load a dump folder into db_path and return row counts per table."""
+def load_dump(
+    dump_dir: Path, db_path: Path, encoding: str = "utf-8-sig"
+) -> dict[str, int]:
+    """Load a dump folder into db_path and return row counts per table.
+
+    Files that do not decode with the given encoding are decoded again
+    with replacement characters instead of failing the load; each such
+    file is recorded as an encoding_warning row in the meta table. The
+    extraction scripts ask for NLS_LANG=.AL32UTF8, but dumps arrive in
+    whatever the client environment produced.
+    """
     if not dump_dir.is_dir():
         raise FileNotFoundError(f"dump directory not found: {dump_dir}")
 
     conn = open_db(db_path)
+    lossy: list[str] = []
     try:
         counts: dict[str, int] = {}
         for file_name, (table, mapping) in CSV_TABLES.items():
             path = dump_dir / file_name
             if path.exists():
-                counts[table] = _load_csv(conn, path, table, mapping)
-        counts["ddl"] = sum(
-            _load_ddl(conn, path) for path in sorted(dump_dir.glob("ddl_*.sql"))
+                text = _read_text(path, encoding, lossy)
+                counts[table] = _load_csv(conn, text, table, mapping)
+        counts["ddl"] = 0
+        for path in sorted(dump_dir.glob("ddl_*.sql")):
+            text = _read_text(path, encoding, lossy)
+            counts["ddl"] += _load_ddl(conn, text)
+        conn.executemany(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+            [
+                (
+                    f"encoding_warning:{name}",
+                    f"not valid {encoding}; decoded with replacement"
+                    " characters, pass --encoding with the real one",
+                )
+                for name in lossy
+            ],
         )
         conn.commit()
         return counts
@@ -275,9 +299,18 @@ def load_dump(dump_dir: Path, db_path: Path) -> dict[str, int]:
         conn.close()
 
 
+def _read_text(path: Path, encoding: str, lossy: list[str]) -> str:
+    data = path.read_bytes()
+    try:
+        return data.decode(encoding)
+    except UnicodeDecodeError:
+        lossy.append(path.name)
+        return data.decode(encoding, errors="replace")
+
+
 def _load_csv(
     conn: sqlite3.Connection,
-    path: Path,
+    text: str,
     table: str,
     mapping: dict[str, str],
 ) -> int:
@@ -288,15 +321,13 @@ def _load_csv(
     )
 
     rows = []
-    # SQL*Plus spools may lead with a BOM depending on client configuration.
-    with path.open(encoding="utf-8-sig", newline="") as fh:
-        for record in csv.DictReader(_data_lines(fh)):
-            rows.append(
-                tuple(
-                    _coerce(column, record.get(header))
-                    for header, column in mapping.items()
-                )
+    for record in csv.DictReader(_data_lines(io.StringIO(text))):
+        rows.append(
+            tuple(
+                _coerce(column, record.get(header))
+                for header, column in mapping.items()
             )
+        )
     conn.executemany(sql, rows)
     return len(rows)
 
@@ -319,8 +350,7 @@ def _coerce(column: str, value: str | None) -> str | int | None:
     return value
 
 
-def _load_ddl(conn: sqlite3.Connection, path: Path) -> int:
-    text = path.read_text(encoding="utf-8-sig")
+def _load_ddl(conn: sqlite3.Connection, text: str) -> int:
     markers = list(DDL_MARKER.finditer(text))
     rows = []
     for i, marker in enumerate(markers):

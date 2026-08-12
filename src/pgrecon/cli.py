@@ -90,9 +90,16 @@ def load(
     db: Annotated[Path, typer.Option(help="Inventory database to create.")] = Path(
         "inventory.db"
     ),
+    encoding: Annotated[
+        str,
+        typer.Option(
+            help="Encoding of the dump files, e.g. cp949 for a Korean"
+            " Windows client. Defaults to UTF-8."
+        ),
+    ] = "utf-8-sig",
 ) -> None:
     """Load an extraction dump into a local SQLite inventory."""
-    counts = load_dump(dump_dir, db)
+    counts = load_dump(dump_dir, db, encoding)
     width = max(len(name) for name in counts)
     for name, count in sorted(counts.items()):
         typer.echo(f"{name:<{width}}  {count}")
