@@ -1,15 +1,15 @@
--- Synthetic assessment schema for pgrecon development and testing.
+-- Synthetic assessment schema, Oracle 11g variant.
 --
--- Creates the RECON_TEST schema and fills it with the constructs that
--- make Oracle to PostgreSQL migrations expensive: package state with
--- an initialization block, a compound trigger, an autonomous
--- transaction, CONNECT BY, interval partitioning, LONG and XMLTYPE
--- columns, a scheduler job, an object type with a body, a loopback
--- database link, and a materialized view. Every construct here should
--- eventually be caught by at least one assessment rule.
+-- Same intent as synthetic_schema.sql, adjusted for an 11gR2 XE
+-- target: no identity columns (12c) and no partitioned table (the
+-- partitioning option is absent from XE 11). Everything else stays:
+-- package state with an initialization block, compound trigger,
+-- autonomous transaction, CONNECT BY, LONG and XMLTYPE columns,
+-- virtual column, scheduler job, object type with body, loopback
+-- database link, materialized view.
 --
 -- Run against a disposable database only:
---   sqlplus system/<password>@localhost/XEPDB1 @synthetic_schema.sql
+--   sqlplus system/<password>@//localhost/XE @synthetic_schema_11g.sql
 --
 -- The script drops and recreates the RECON_TEST user.
 
@@ -36,11 +36,7 @@ GRANT CREATE SESSION,
       CREATE JOB
    TO recon_test;
 
-CONNECT recon_test/"ReconT3st_x"@localhost/XEPDB1
-
--- ---------------------------------------------------------------
--- Tables
--- ---------------------------------------------------------------
+CONNECT recon_test/"ReconT3st_x"@//localhost/XE
 
 CREATE TABLE dept (
     deptno   NUMBER(2) CONSTRAINT pk_dept PRIMARY KEY,
@@ -60,37 +56,37 @@ CREATE TABLE emp (
     CONSTRAINT fk_emp_mgr FOREIGN KEY (mgr) REFERENCES emp (empno)
 );
 
-COMMENT ON TABLE emp IS 'Employees, self-referencing via mgr';
-COMMENT ON COLUMN emp.sal IS 'Monthly salary before commission';
-
--- Identity column plus a virtual column.
+-- Virtual column (11.1+); the invoice id comes from a sequence and
+-- trigger, the pre-12c idiom the assessment should recognize.
 CREATE TABLE invoices (
-    invoice_id  NUMBER GENERATED ALWAYS AS IDENTITY,
+    invoice_id  NUMBER(10) CONSTRAINT pk_invoices PRIMARY KEY,
     customer    VARCHAR2(100) NOT NULL,
     net_amount  NUMBER(12,2) NOT NULL,
     vat_rate    NUMBER(4,2) DEFAULT 19,
     gross       NUMBER(14,2) GENERATED ALWAYS AS
-                (ROUND(net_amount * (1 + vat_rate / 100), 2)) VIRTUAL,
-    created_at  TIMESTAMP(6) WITH LOCAL TIME ZONE DEFAULT SYSTIMESTAMP,
-    CONSTRAINT pk_invoices PRIMARY KEY (invoice_id)
+                (ROUND(net_amount * (1 + vat_rate / 100), 2)) VIRTUAL
 );
 
--- Interval partitioning: partitions materialize as data arrives, a
--- scheme PostgreSQL has no declarative equivalent for.
+CREATE SEQUENCE seq_invoice_id START WITH 1 INCREMENT BY 1 CACHE 100;
+
+CREATE OR REPLACE TRIGGER trg_invoices_id
+BEFORE INSERT ON invoices
+FOR EACH ROW
+BEGIN
+    IF :NEW.invoice_id IS NULL THEN
+        SELECT seq_invoice_id.NEXTVAL INTO :NEW.invoice_id FROM dual;
+    END IF;
+END;
+/
+
+-- Plain table here: XE 11 has no partitioning option.
 CREATE TABLE sales (
     sale_id   NUMBER(10) NOT NULL,
     sale_date DATE NOT NULL,
     amount    NUMBER(10,2),
     region    VARCHAR2(20)
-)
-PARTITION BY RANGE (sale_date)
-INTERVAL (NUMTOYMINTERVAL(1, 'MONTH'))
-(
-    PARTITION p_start VALUES LESS THAN (DATE '2025-01-01')
 );
 
--- Legacy LONG column; only one is allowed per table and the type has
--- been deprecated since Oracle 8.
 CREATE TABLE legacy_notes (
     note_id   NUMBER(10) CONSTRAINT pk_legacy_notes PRIMARY KEY,
     body      LONG
@@ -110,18 +106,16 @@ CREATE GLOBAL TEMPORARY TABLE staging_rows (
 ) ON COMMIT DELETE ROWS;
 
 CREATE TABLE audit_log (
-    audit_id   NUMBER GENERATED ALWAYS AS IDENTITY,
+    audit_id   NUMBER(10) CONSTRAINT pk_audit_log PRIMARY KEY,
     table_name VARCHAR2(30),
     action     VARCHAR2(10),
     actor      VARCHAR2(30),
     logged_at  DATE DEFAULT SYSDATE
 );
 
-CREATE SEQUENCE seq_sale_id START WITH 1000 INCREMENT BY 1 CACHE 100;
+CREATE SEQUENCE seq_audit_id START WITH 1 INCREMENT BY 1;
 
--- ---------------------------------------------------------------
--- Seed data
--- ---------------------------------------------------------------
+CREATE SEQUENCE seq_sale_id START WITH 1000 INCREMENT BY 1 CACHE 100;
 
 INSERT INTO dept VALUES (10, 'ACCOUNTING', 'NEW YORK');
 INSERT INTO dept VALUES (20, 'RESEARCH', 'DALLAS');
@@ -133,8 +127,6 @@ INSERT INTO emp VALUES (7566, 'JONES', 'MANAGER', 7839,
     DATE '2016-04-02', 2975, NULL, 20);
 INSERT INTO emp VALUES (7788, 'SCOTT', 'ANALYST', 7566,
     DATE '2017-12-09', 3000, NULL, 20);
-INSERT INTO emp VALUES (7654, 'MARTIN', 'SALESMAN', 7566,
-    DATE '2018-09-28', 1250, 1400, 30);
 
 INSERT INTO sales
     SELECT seq_sale_id.NEXTVAL,
@@ -147,12 +139,6 @@ INSERT INTO sales
 
 COMMIT;
 
--- ---------------------------------------------------------------
--- Views
--- ---------------------------------------------------------------
-
--- Hierarchical query: CONNECT BY has no direct PostgreSQL equivalent
--- and must become a recursive CTE.
 CREATE OR REPLACE VIEW v_org_chart AS
 SELECT empno,
        ename,
@@ -163,7 +149,6 @@ SELECT empno,
  START WITH mgr IS NULL
 CONNECT BY PRIOR empno = mgr;
 
--- Old-style outer join syntax.
 CREATE OR REPLACE VIEW v_emp_dept AS
 SELECT e.ename, e.sal, d.dname
   FROM emp e, dept d
@@ -179,11 +164,7 @@ CREATE SYNONYM staff FOR emp;
 
 CREATE DATABASE LINK loopback
     CONNECT TO recon_test IDENTIFIED BY "ReconT3st_x"
-    USING '//localhost:1521/XEPDB1';
-
--- ---------------------------------------------------------------
--- Object type with body
--- ---------------------------------------------------------------
+    USING '//localhost:1521/XE';
 
 CREATE OR REPLACE TYPE t_money AS OBJECT (
     amount   NUMBER(14,2),
@@ -199,10 +180,6 @@ CREATE OR REPLACE TYPE BODY t_money AS
     END;
 END;
 /
-
--- ---------------------------------------------------------------
--- Package with global state and an initialization block
--- ---------------------------------------------------------------
 
 CREATE OR REPLACE PACKAGE pkg_ledger AS
     g_run_id      NUMBER;
@@ -246,14 +223,11 @@ CREATE OR REPLACE PACKAGE BODY pkg_ledger AS
         END LOOP;
     END rollup_day;
 
--- Package initialization: runs once per session on first reference,
--- a behavior PostgreSQL has no counterpart for.
 BEGIN
     SELECT NVL(MAX(audit_id), 0) + 1 INTO g_run_id FROM audit_log;
 END pkg_ledger;
 /
 
--- Standalone procedure with OUT parameters and a GOTO.
 CREATE OR REPLACE PROCEDURE find_manager (
     p_empno  IN  NUMBER,
     p_mgr    OUT VARCHAR2,
@@ -285,11 +259,6 @@ BEGIN
 END dept_headcount;
 /
 
--- ---------------------------------------------------------------
--- Triggers
--- ---------------------------------------------------------------
-
--- Compound trigger: one body, four timing sections.
 CREATE OR REPLACE TRIGGER trg_emp_sal_guard
 FOR INSERT OR UPDATE OF sal ON emp
 COMPOUND TRIGGER
@@ -319,8 +288,6 @@ COMPOUND TRIGGER
 END trg_emp_sal_guard;
 /
 
--- Autonomous transaction: the audit row commits even when the
--- triggering transaction rolls back.
 CREATE OR REPLACE TRIGGER trg_emp_audit
 AFTER INSERT OR UPDATE OR DELETE ON emp
 FOR EACH ROW
@@ -333,15 +300,11 @@ BEGIN
         WHEN UPDATING  THEN 'UPDATE'
         ELSE 'DELETE'
     END;
-    INSERT INTO audit_log (table_name, action, actor)
-    VALUES ('EMP', l_action, USER);
+    INSERT INTO audit_log (audit_id, table_name, action, actor)
+    VALUES (seq_audit_id.NEXTVAL, 'EMP', l_action, USER);
     COMMIT;
 END trg_emp_audit;
 /
-
--- ---------------------------------------------------------------
--- Scheduler job (disabled; it exists to be inventoried, not to run)
--- ---------------------------------------------------------------
 
 BEGIN
     DBMS_SCHEDULER.CREATE_JOB(
@@ -354,6 +317,6 @@ BEGIN
 END;
 /
 
-PROMPT synthetic schema created
+PROMPT synthetic schema (11g variant) created
 
 EXIT
