@@ -23,12 +23,36 @@
 WHENEVER OSERROR CONTINUE
 WHENEVER SQLERROR CONTINUE
 
-SET TERMOUT ON
-PROMPT pgrecon extraction starting for schema &1
-
 SET ECHO OFF
 SET VERIFY OFF
 SET FEEDBACK OFF
+SET HEADING OFF
+SET TERMOUT ON
+PROMPT pgrecon extraction starting for schema &1
+
+-- Runtime guards: stop with a readable message instead of spooling a
+-- broken dump. The client check reads the predefined _SQLPLUS_RELEASE
+-- variable (present since SQL*Plus 10.1; a 9i client should be using
+-- the legacy variant to begin with).
+PROMPT Checking client and server versions ...
+PROMPT If the script stops below this line, use the legacy variant
+PROMPT instead: pgrecon script --legacy
+WHENEVER SQLERROR EXIT FAILURE
+SELECT CASE WHEN TO_NUMBER('&_SQLPLUS_RELEASE') >= 1202000000
+            THEN 'client ok'
+            ELSE TO_CHAR(TO_NUMBER('client older than 12.2')) END
+  FROM dual;
+SELECT CASE WHEN TO_NUMBER(SUBSTR(version, 1, INSTR(version, '.') - 1)) * 100
+            + TO_NUMBER(SUBSTR(version, INSTR(version, '.') + 1,
+                        INSTR(version, '.', 1, 2) - INSTR(version, '.') - 1))
+            >= 1102
+            THEN 'server ok'
+            ELSE TO_CHAR(TO_NUMBER('server older than 11.2')) END
+  FROM product_component_version
+ WHERE product LIKE 'Oracle%' AND ROWNUM = 1;
+WHENEVER SQLERROR CONTINUE
+
+SET HEADING ON
 SET TERMOUT OFF
 SET TRIMSPOOL ON
 SET PAGESIZE 50000
@@ -131,6 +155,91 @@ SELECT owner,
  ORDER BY name, referenced_name;
 SPOOL OFF
 
+SPOOL constraints.csv
+SELECT owner,
+       constraint_name,
+       table_name,
+       constraint_type,
+       status,
+       r_owner,
+       r_constraint_name,
+       delete_rule
+  FROM all_constraints
+ WHERE owner = UPPER('&schema')
+   AND constraint_type IN ('P', 'R', 'U', 'C')
+   AND table_name NOT LIKE 'BIN$%'
+ ORDER BY table_name, constraint_name;
+SPOOL OFF
+
+SPOOL constraint_columns.csv
+SELECT owner, constraint_name, column_name, position
+  FROM all_cons_columns
+ WHERE owner = UPPER('&schema')
+   AND table_name NOT LIKE 'BIN$%'
+ ORDER BY constraint_name, position;
+SPOOL OFF
+
+SPOOL indexes.csv
+SELECT owner,
+       index_name,
+       table_name,
+       index_type,
+       uniqueness,
+       status,
+       generated
+  FROM all_indexes
+ WHERE owner = UPPER('&schema')
+   AND index_name NOT LIKE 'BIN$%'
+ ORDER BY table_name, index_name;
+SPOOL OFF
+
+SPOOL index_columns.csv
+SELECT index_owner AS owner, index_name, column_name, column_position
+  FROM all_ind_columns
+ WHERE index_owner = UPPER('&schema')
+ ORDER BY index_name, column_position;
+SPOOL OFF
+
+SPOOL part_tables.csv
+SELECT owner,
+       table_name,
+       partitioning_type,
+       subpartitioning_type,
+       partition_count,
+       interval
+  FROM all_part_tables
+ WHERE owner = UPPER('&schema')
+ ORDER BY table_name;
+SPOOL OFF
+
+SPOOL part_key_columns.csv
+SELECT owner, name, column_name, column_position
+  FROM all_part_key_columns
+ WHERE owner = UPPER('&schema')
+   AND object_type = 'TABLE'
+ ORDER BY name, column_position;
+SPOOL OFF
+
+SPOOL synonyms.csv
+SELECT owner, synonym_name, table_owner, table_name, db_link
+  FROM all_synonyms
+ WHERE owner = UPPER('&schema')
+    OR (owner = 'PUBLIC' AND table_owner = UPPER('&schema'))
+ ORDER BY owner, synonym_name;
+SPOOL OFF
+
+SPOOL triggers.csv
+SELECT owner,
+       trigger_name,
+       trigger_type,
+       triggering_event,
+       table_name,
+       status
+  FROM all_triggers
+ WHERE owner = UPPER('&schema')
+ ORDER BY trigger_name;
+SPOOL OFF
+
 -- Feature probes: one row per feature with a count. Each of these
 -- influences migration effort in a different way.
 SPOOL features.csv
@@ -213,6 +322,61 @@ SELECT '-- PGRECON_OBJECT SEQUENCE ' || sequence_owner || '.' || sequence_name |
  WHERE sequence_owner = UPPER('&schema')
    AND sequence_name NOT LIKE 'ISEQ$$%'
  ORDER BY sequence_name;
+SPOOL OFF
+
+-- Check conditions and function-based index expressions live in LONG
+-- columns, which SQL cannot concatenate into CSV rows. Read them in
+-- PL/SQL instead; 2000 characters is plenty for assessment purposes
+-- and anything longer is flagged as truncated.
+SET SERVEROUTPUT ON SIZE UNLIMITED
+
+SPOOL check_conditions.csv
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"OWNER","CONSTRAINT_NAME","CONDITION","TRUNCATED"');
+    FOR c IN (SELECT owner, constraint_name, search_condition
+                FROM all_constraints
+               WHERE owner = UPPER('&schema')
+                 AND constraint_type = 'C'
+                 AND table_name NOT LIKE 'BIN$%'
+               ORDER BY constraint_name) LOOP
+        DECLARE
+            l_cond VARCHAR2(2000);
+        BEGIN
+            l_cond := SUBSTR(c.search_condition, 1, 2000);
+            l_cond := REPLACE(REPLACE(REPLACE(l_cond, '"', '""'),
+                              CHR(13), ' '), CHR(10), ' ');
+            DBMS_OUTPUT.PUT_LINE('"' || c.owner || '","'
+                || c.constraint_name || '","' || l_cond || '",'
+                || CASE WHEN LENGTH(l_cond) >= 2000 THEN 1 ELSE 0 END);
+        END;
+    END LOOP;
+END;
+/
+SPOOL OFF
+
+SPOOL index_expressions.csv
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"OWNER","INDEX_NAME","COLUMN_POSITION",'
+        || '"COLUMN_EXPRESSION","TRUNCATED"');
+    FOR e IN (SELECT index_owner, index_name, column_position,
+                     column_expression
+                FROM all_ind_expressions
+               WHERE index_owner = UPPER('&schema')
+               ORDER BY index_name, column_position) LOOP
+        DECLARE
+            l_expr VARCHAR2(2000);
+        BEGIN
+            l_expr := SUBSTR(e.column_expression, 1, 2000);
+            l_expr := REPLACE(REPLACE(REPLACE(l_expr, '"', '""'),
+                              CHR(13), ' '), CHR(10), ' ');
+            DBMS_OUTPUT.PUT_LINE('"' || e.index_owner || '","'
+                || e.index_name || '",' || e.column_position || ',"'
+                || l_expr || '",'
+                || CASE WHEN LENGTH(l_expr) >= 2000 THEN 1 ELSE 0 END);
+        END;
+    END LOOP;
+END;
+/
 SPOOL OFF
 
 SET TERMOUT ON

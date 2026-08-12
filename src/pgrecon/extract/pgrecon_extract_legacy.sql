@@ -137,6 +137,105 @@ SELECT '"' || owner || '","' || REPLACE(name, '"', '""') || '","'
  ORDER BY name, referenced_name;
 SPOOL OFF
 
+SPOOL constraints.csv
+SELECT '"OWNER","CONSTRAINT_NAME","TABLE_NAME","CONSTRAINT_TYPE","STATUS",'
+       || '"R_OWNER","R_CONSTRAINT_NAME","DELETE_RULE"'
+  FROM dual;
+SELECT '"' || owner || '","' || REPLACE(constraint_name, '"', '""') || '","'
+       || REPLACE(table_name, '"', '""') || '","' || constraint_type || '","'
+       || status || '","' || NVL(r_owner, '') || '","'
+       || NVL(r_constraint_name, '') || '","' || NVL(delete_rule, '') || '"'
+  FROM all_constraints
+ WHERE owner = UPPER('&schema')
+   AND constraint_type IN ('P', 'R', 'U', 'C')
+   AND table_name NOT LIKE 'BIN$%'
+ ORDER BY table_name, constraint_name;
+SPOOL OFF
+
+SPOOL constraint_columns.csv
+SELECT '"OWNER","CONSTRAINT_NAME","COLUMN_NAME","POSITION"' FROM dual;
+SELECT '"' || owner || '","' || REPLACE(constraint_name, '"', '""') || '","'
+       || REPLACE(column_name, '"', '""') || '",'
+       || NVL(TO_CHAR(position), '')
+  FROM all_cons_columns
+ WHERE owner = UPPER('&schema')
+   AND table_name NOT LIKE 'BIN$%'
+ ORDER BY constraint_name, position;
+SPOOL OFF
+
+SPOOL indexes.csv
+SELECT '"OWNER","INDEX_NAME","TABLE_NAME","INDEX_TYPE","UNIQUENESS",'
+       || '"STATUS","GENERATED"'
+  FROM dual;
+SELECT '"' || owner || '","' || REPLACE(index_name, '"', '""') || '","'
+       || REPLACE(table_name, '"', '""') || '","' || index_type || '","'
+       || uniqueness || '","' || status || '","' || generated || '"'
+  FROM all_indexes
+ WHERE owner = UPPER('&schema')
+   AND index_name NOT LIKE 'BIN$%'
+ ORDER BY table_name, index_name;
+SPOOL OFF
+
+SPOOL index_columns.csv
+SELECT '"OWNER","INDEX_NAME","COLUMN_NAME","COLUMN_POSITION"' FROM dual;
+SELECT '"' || index_owner || '","' || REPLACE(index_name, '"', '""') || '","'
+       || REPLACE(column_name, '"', '""') || '",' || column_position
+  FROM all_ind_columns
+ WHERE index_owner = UPPER('&schema')
+ ORDER BY index_name, column_position;
+SPOOL OFF
+
+-- No INTERVAL column here: it arrived with 11.1. The loader treats the
+-- missing header as null.
+SPOOL part_tables.csv
+SELECT '"OWNER","TABLE_NAME","PARTITIONING_TYPE","SUBPARTITIONING_TYPE",'
+       || '"PARTITION_COUNT"'
+  FROM dual;
+SELECT '"' || owner || '","' || REPLACE(table_name, '"', '""') || '","'
+       || partitioning_type || '","' || subpartitioning_type || '",'
+       || partition_count
+  FROM all_part_tables
+ WHERE owner = UPPER('&schema')
+ ORDER BY table_name;
+SPOOL OFF
+
+SPOOL part_key_columns.csv
+SELECT '"OWNER","NAME","COLUMN_NAME","COLUMN_POSITION"' FROM dual;
+SELECT '"' || owner || '","' || REPLACE(name, '"', '""') || '","'
+       || REPLACE(column_name, '"', '""') || '",' || column_position
+  FROM all_part_key_columns
+ WHERE owner = UPPER('&schema')
+   AND object_type = 'TABLE'
+ ORDER BY name, column_position;
+SPOOL OFF
+
+SPOOL synonyms.csv
+SELECT '"OWNER","SYNONYM_NAME","TABLE_OWNER","TABLE_NAME","DB_LINK"'
+  FROM dual;
+SELECT '"' || owner || '","' || REPLACE(synonym_name, '"', '""') || '","'
+       || NVL(table_owner, '') || '","'
+       || REPLACE(NVL(table_name, ''), '"', '""') || '","'
+       || NVL(db_link, '') || '"'
+  FROM all_synonyms
+ WHERE owner = UPPER('&schema')
+    OR (owner = 'PUBLIC' AND table_owner = UPPER('&schema'))
+ ORDER BY owner, synonym_name;
+SPOOL OFF
+
+SPOOL triggers.csv
+SELECT '"OWNER","TRIGGER_NAME","TRIGGER_TYPE","TRIGGERING_EVENT",'
+       || '"TABLE_NAME","STATUS"'
+  FROM dual;
+SELECT '"' || owner || '","' || REPLACE(trigger_name, '"', '""') || '","'
+       || trigger_type || '","'
+       || REPLACE(REPLACE(triggering_event, CHR(13), ' '), CHR(10), ' ')
+       || '","' || REPLACE(NVL(table_name, ''), '"', '""') || '","'
+       || status || '"'
+  FROM all_triggers
+ WHERE owner = UPPER('&schema')
+ ORDER BY trigger_name;
+SPOOL OFF
+
 -- Feature probes limited to views that exist on 9.2. DBMS_SCHEDULER
 -- arrived in 10g, so on this tier only legacy DBMS_JOB is counted.
 SPOOL features.csv
@@ -224,6 +323,55 @@ BEGIN
                 DBMS_OUTPUT.PUT_LINE(NVL(l_line, ' '));
             END LOOP;
         END IF;
+    END LOOP;
+END;
+/
+SPOOL OFF
+
+-- Check conditions and function-based index expressions live in LONG
+-- columns; read them in PL/SQL. Values are cut at 200 characters so a
+-- quoted CSV row stays inside the 255-byte DBMS_OUTPUT line limit of
+-- pre-10.2 servers; anything cut is flagged as truncated.
+
+SPOOL check_conditions.csv
+DECLARE
+    l_cond VARCHAR2(4000);
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"OWNER","CONSTRAINT_NAME","CONDITION","TRUNCATED"');
+    FOR c IN (SELECT owner, constraint_name, search_condition
+                FROM all_constraints
+               WHERE owner = UPPER('&schema')
+                 AND constraint_type = 'C'
+                 AND table_name NOT LIKE 'BIN$%'
+               ORDER BY constraint_name) LOOP
+        l_cond := SUBSTR(c.search_condition, 1, 200);
+        l_cond := REPLACE(REPLACE(REPLACE(l_cond, '"', '""'),
+                          CHR(13), ' '), CHR(10), ' ');
+        DBMS_OUTPUT.PUT_LINE('"' || c.owner || '","' || c.constraint_name
+            || '","' || l_cond || '",'
+            || CASE WHEN LENGTH(l_cond) >= 200 THEN 1 ELSE 0 END);
+    END LOOP;
+END;
+/
+SPOOL OFF
+
+SPOOL index_expressions.csv
+DECLARE
+    l_expr VARCHAR2(4000);
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"OWNER","INDEX_NAME","COLUMN_POSITION",'
+        || '"COLUMN_EXPRESSION","TRUNCATED"');
+    FOR e IN (SELECT index_owner, index_name, column_position,
+                     column_expression
+                FROM all_ind_expressions
+               WHERE index_owner = UPPER('&schema')
+               ORDER BY index_name, column_position) LOOP
+        l_expr := SUBSTR(e.column_expression, 1, 200);
+        l_expr := REPLACE(REPLACE(REPLACE(l_expr, '"', '""'),
+                          CHR(13), ' '), CHR(10), ' ');
+        DBMS_OUTPUT.PUT_LINE('"' || e.index_owner || '","' || e.index_name
+            || '",' || e.column_position || ',"' || l_expr || '",'
+            || CASE WHEN LENGTH(l_expr) >= 200 THEN 1 ELSE 0 END);
     END LOOP;
 END;
 /
