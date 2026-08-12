@@ -190,6 +190,15 @@ CSV_TABLES: dict[str, tuple[str, dict[str, str]]] = {
             "STATUS": "status",
         },
     ),
+    "db_links.csv": (
+        "db_links",
+        {
+            "OWNER": "owner",
+            "DB_LINK": "db_link",
+            "USERNAME": "username",
+            "HOST": "host",
+        },
+    ),
 }
 
 INT_COLUMNS = {
@@ -318,23 +327,34 @@ def _load_ddl(conn: sqlite3.Connection, path: Path) -> int:
         end = markers[i + 1].start() if i + 1 < len(markers) else len(text)
         obj_type, owner, name = marker.groups()
         statement = text[marker.end() : end].strip()
-        error = _oracle_parse_error(statement)
-        rows.append((owner, name, obj_type, statement, error is None, error))
+        error, quality = _oracle_parse(statement)
+        rows.append((owner, name, obj_type, statement, error is None, error, quality))
     conn.executemany(
         "INSERT OR REPLACE INTO ddl"
-        " (owner, name, type, ddl, parse_ok, parse_error)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
+        " (owner, name, type, ddl, parse_ok, parse_error, parse_quality)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     return len(rows)
 
 
-def _oracle_parse_error(statement: str) -> str | None:
+def _oracle_parse(statement: str) -> tuple[str | None, str | None]:
+    """Parse a statement and report (error, quality).
+
+    quality is 'full' for a real syntax tree, 'fallback' when sqlglot
+    accepted the text only as an opaque Command node, and None when the
+    parse failed outright.
+    """
     normalized = statement
     for pattern, replacement in PARSE_NORMALIZATIONS:
         normalized = pattern.sub(replacement, normalized)
     try:
-        sqlglot.parse(normalized, dialect="oracle")
+        statements = sqlglot.parse(normalized, dialect="oracle")
     except SqlglotError as exc:
-        return str(exc)
-    return None
+        return str(exc), None
+    if any(
+        expression is None or isinstance(expression, sqlglot.exp.Command)
+        for expression in statements
+    ):
+        return None, "fallback"
+    return None, "full"

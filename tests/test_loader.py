@@ -32,6 +32,7 @@ def test_counts_match_fixture(loaded: tuple[dict[str, int], Path]) -> None:
     assert counts["part_key_columns"] == 1
     assert counts["synonyms"] == 1
     assert counts["triggers"] == 1
+    assert counts["db_links"] == 1
 
 
 def test_structured_facts_are_queryable(loaded: tuple[dict[str, int], Path]) -> None:
@@ -104,6 +105,20 @@ def test_view_ddl_parses(loaded: tuple[dict[str, int], Path]) -> None:
     conn = sqlite3.connect(db)
     row = conn.execute("SELECT parse_ok FROM ddl WHERE name = 'EMP_V'").fetchone()
     assert row == (1,)
+
+
+def test_parse_quality_is_recorded(loaded: tuple[dict[str, int], Path]) -> None:
+    _, db = loaded
+    conn = sqlite3.connect(db)
+    quality = conn.execute(
+        "SELECT parse_quality FROM ddl WHERE name = 'EMP'"
+    ).fetchone()[0]
+    assert quality == "full"
+    # A failed parse carries no quality at all.
+    quality = conn.execute(
+        "SELECT parse_quality FROM ddl WHERE name = 'BROKEN'"
+    ).fetchone()[0]
+    assert quality is None
 
 
 def test_missing_dump_dir_raises(tmp_path: Path) -> None:

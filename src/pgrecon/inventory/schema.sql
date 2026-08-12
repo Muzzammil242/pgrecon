@@ -66,14 +66,26 @@ CREATE TABLE dependencies (
 
 -- Extracted DDL plus the result of a syntax parse with sqlglot's Oracle
 -- dialect. A failed parse is data for the assessment, not an error.
+-- parse_quality records how deep the parse went: 'full' when a real
+-- syntax tree came back, 'fallback' when sqlglot accepted the text
+-- only as an opaque command, which usually flags exotic syntax.
 CREATE TABLE ddl (
-    owner       TEXT NOT NULL,
-    name        TEXT NOT NULL,
-    type        TEXT NOT NULL,
-    ddl         TEXT,
-    parse_ok    INTEGER NOT NULL,
-    parse_error TEXT,
+    owner         TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    type          TEXT NOT NULL,
+    ddl           TEXT,
+    parse_ok      INTEGER NOT NULL,
+    parse_error   TEXT,
+    parse_quality TEXT,
     PRIMARY KEY (owner, name, type)
+);
+
+CREATE TABLE db_links (
+    owner    TEXT NOT NULL,
+    db_link  TEXT NOT NULL,
+    username TEXT,
+    host     TEXT,
+    PRIMARY KEY (owner, db_link)
 );
 
 -- Constraint facts. Type is Oracle's single letter: P primary key,

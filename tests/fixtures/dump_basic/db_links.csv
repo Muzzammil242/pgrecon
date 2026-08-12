@@ -1,0 +1,3 @@
+
+"OWNER","DB_LINK","USERNAME","HOST"
+"HR","LOOPBACK","HR","//localhost:1521/XE"

@@ -60,13 +60,32 @@ def sql_detector(query: str) -> Detector:
     return run
 
 
+def source_grep(pattern: str, label: str) -> str:
+    """Query for one finding per object whose source contains pattern."""
+    return (
+        "SELECT owner, name, type,"
+        f" '{label} (first at line ' || MIN(line) || ')' AS detail"
+        " FROM source WHERE UPPER(text) LIKE UPPER('%" + pattern + "%')"
+        " GROUP BY owner, name, type"
+    )
+
+
 def all_rules() -> list[Rule]:
-    from pgrecon.rules import code, columns, objects, packages, storage, syspackages
+    from pgrecon.rules import (
+        code,
+        columns,
+        objects,
+        packages,
+        sqlconstructs,
+        storage,
+        syspackages,
+    )
 
     rules = [
         *columns.RULES,
         *storage.RULES,
         *code.RULES,
+        *sqlconstructs.RULES,
         *packages.RULES,
         *syspackages.RULES,
         *objects.RULES,

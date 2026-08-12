@@ -240,6 +240,16 @@ SELECT owner,
  ORDER BY trigger_name;
 SPOOL OFF
 
+-- Private database links are invisible through ALL_DB_LINKS to anyone
+-- but their owner; DBA_DB_LINKS is readable with SELECT_CATALOG_ROLE,
+-- which this script already requires.
+SPOOL db_links.csv
+SELECT owner, db_link, username, host
+  FROM dba_db_links
+ WHERE owner IN (UPPER('&schema'), 'PUBLIC')
+ ORDER BY owner, db_link;
+SPOOL OFF
+
 -- Feature probes: one row per feature with a count. Each of these
 -- influences migration effort in a different way.
 SPOOL features.csv
@@ -247,7 +257,10 @@ SELECT 'materialized_views' AS feature, 'schema total' AS detail, COUNT(*) AS cn
   FROM all_mviews WHERE owner = UPPER('&schema')
 UNION ALL
 SELECT 'db_links', 'owned or public', COUNT(*)
-  FROM all_db_links WHERE owner IN (UPPER('&schema'), 'PUBLIC')
+  FROM dba_db_links WHERE owner IN (UPPER('&schema'), 'PUBLIC')
+UNION ALL
+SELECT 'vpd_policies', 'row level security', COUNT(*)
+  FROM all_policies WHERE object_owner = UPPER('&schema')
 UNION ALL
 SELECT 'scheduler_jobs', 'schema total', COUNT(*)
   FROM all_scheduler_jobs WHERE owner = UPPER('&schema')

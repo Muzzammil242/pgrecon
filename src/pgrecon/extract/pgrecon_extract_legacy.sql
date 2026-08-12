@@ -222,6 +222,19 @@ SELECT '"' || owner || '","' || REPLACE(synonym_name, '"', '""') || '","'
  ORDER BY owner, synonym_name;
 SPOOL OFF
 
+-- Private database links are invisible through ALL_DB_LINKS to anyone
+-- but their owner; DBA_DB_LINKS is readable with SELECT_CATALOG_ROLE,
+-- which this script already requires.
+SPOOL db_links.csv
+SELECT '"OWNER","DB_LINK","USERNAME","HOST"' FROM dual;
+SELECT '"' || owner || '","' || REPLACE(db_link, '"', '""') || '","'
+       || NVL(username, '') || '","'
+       || REPLACE(NVL(host, ''), '"', '""') || '"'
+  FROM dba_db_links
+ WHERE owner IN (UPPER('&schema'), 'PUBLIC')
+ ORDER BY owner, db_link;
+SPOOL OFF
+
 SPOOL triggers.csv
 SELECT '"OWNER","TRIGGER_NAME","TRIGGER_TYPE","TRIGGERING_EVENT",'
        || '"TABLE_NAME","STATUS"'
@@ -243,7 +256,9 @@ SELECT '"FEATURE","DETAIL","CNT"' FROM dual;
 SELECT '"materialized_views","schema total",' || COUNT(*)
   FROM all_mviews WHERE owner = UPPER('&schema') UNION ALL
 SELECT '"db_links","owned or public",' || COUNT(*)
-  FROM all_db_links WHERE owner IN (UPPER('&schema'), 'PUBLIC') UNION ALL
+  FROM dba_db_links WHERE owner IN (UPPER('&schema'), 'PUBLIC') UNION ALL
+SELECT '"vpd_policies","row level security",' || COUNT(*)
+  FROM all_policies WHERE object_owner = UPPER('&schema') UNION ALL
 SELECT '"legacy_jobs","dbms_job",' || COUNT(*)
   FROM all_jobs WHERE schema_user = UPPER('&schema') UNION ALL
 SELECT '"queues","advanced queuing",' || COUNT(*)
