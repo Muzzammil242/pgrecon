@@ -1,3 +1,5 @@
 """pgrecon: migration reconnaissance for PostgreSQL."""
 
-__version__ = "0.1.0.dev0"
+from importlib.metadata import version
+
+__version__ = version("pgrecon")
