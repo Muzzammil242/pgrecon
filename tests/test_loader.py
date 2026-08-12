@@ -141,6 +141,64 @@ def test_non_utf8_dump_degrades_and_warns(tmp_path: Path) -> None:
     assert "\N{REPLACEMENT CHARACTER}" in name
 
 
+def test_multilingual_utf8_roundtrips_exactly(tmp_path: Path) -> None:
+    # Chinese, Hebrew, Arabic, Cyrillic, Japanese, and German names in
+    # a properly UTF-8 dump must survive byte for byte, including the
+    # right-to-left scripts.
+    fixture = Path(__file__).parent / "fixtures" / "dump_multilingual"
+    db = tmp_path / "inv.db"
+    counts = load_dump(fixture, db)
+    assert counts["objects"] == 6
+    conn = sqlite3.connect(db)
+    names = {row[0] for row in conn.execute("SELECT name FROM objects")}
+    expected = {
+        "客户",
+        "לקוח",
+        "عميل",
+        "клиент",
+        "顧客",
+        "KüNDE",
+    }
+    assert names == expected
+    warnings = conn.execute(
+        "SELECT COUNT(*) FROM meta WHERE key LIKE 'encoding_warning:%'"
+    ).fetchone()[0]
+    assert warnings == 0
+
+
+@pytest.mark.parametrize(
+    ("encoding", "name"),
+    [
+        ("cp949", "고객"),
+        ("gb18030", "客户"),
+        ("shift_jis", "顧客"),
+    ],
+)
+def test_wrong_encoding_recovers_with_flag(
+    tmp_path: Path, encoding: str, name: str
+) -> None:
+    # Simulate a client whose spool came out in a local code page, then
+    # prove the explicit --encoding override restores full fidelity.
+    dump = tmp_path / "dump"
+    dump.mkdir()
+    header = '"OWNER","OBJECT_NAME","OBJECT_TYPE","STATUS","CREATED","LAST_DDL_TIME"'
+    row = f'"HR","{name}","TABLE","VALID","2024-01-01 10:00:00","2024-01-01 10:00:00"'
+    (dump / "objects.csv").write_bytes(f"\n{header}\n{row}\n".encode(encoding))
+
+    db = tmp_path / "lossy.db"
+    load_dump(dump, db)
+    conn = sqlite3.connect(db)
+    warnings = conn.execute(
+        "SELECT COUNT(*) FROM meta WHERE key LIKE 'encoding_warning:%'"
+    ).fetchone()[0]
+    assert warnings == 1
+
+    db = tmp_path / "exact.db"
+    load_dump(dump, db, encoding=encoding)
+    conn = sqlite3.connect(db)
+    assert conn.execute("SELECT name FROM objects").fetchone()[0] == name
+
+
 def test_explicit_encoding_preserves_korean(tmp_path: Path) -> None:
     fixture = Path(__file__).parent / "fixtures" / "dump_korean"
     db = tmp_path / "inv.db"
