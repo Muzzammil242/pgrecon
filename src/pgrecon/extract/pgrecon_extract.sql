@@ -35,6 +35,9 @@ SET PAGESIZE 50000
 SET LINESIZE 32767
 SET LONG 20000000
 SET LONGCHUNKSIZE 32767
+-- Fetch in large batches; on big schemas the source and column spools
+-- are dominated by round trips otherwise.
+SET ARRAYSIZE 500
 
 DEFINE schema = &1
 
