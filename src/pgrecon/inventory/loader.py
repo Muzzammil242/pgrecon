@@ -14,8 +14,10 @@ recorded, never dropped: unparseable DDL is itself an assessment signal.
 import csv
 import re
 import sqlite3
+from collections.abc import Iterator
 from importlib import resources
 from pathlib import Path
+from typing import TextIO
 
 import sqlglot
 from sqlglot.errors import SqlglotError
@@ -100,13 +102,31 @@ INT_COLUMNS = {
 
 DDL_MARKER = re.compile(r"^-- PGRECON_OBJECT (\S+) ([^\s.]+)\.(\S+)\s*$", re.MULTILINE)
 
-# DBMS_METADATA emits constraint-state keywords that sqlglot's Oracle
-# grammar does not accept. They carry no meaning for an assessment, so
-# the syntax check runs on a copy with them removed. The stored DDL is
-# always the verbatim text from the dump.
-CONSTRAINT_STATE = re.compile(
-    r"\s+(?:ENABLE|DISABLE)(?:\s+(?:NOVALIDATE|VALIDATE))?\b"
-    r"|\s+(?:NOVALIDATE|VALIDATE)\b"
+# DBMS_METADATA output carries physical and state keywords that
+# sqlglot's Oracle grammar rejects but that mean nothing for an
+# assessment: constraint states (ENABLE and friends), the spelled-out
+# backing-sequence options of identity columns, and the VIRTUAL marker
+# on generated columns. The syntax check runs on a normalized copy;
+# the stored DDL is always the verbatim text from the dump.
+PARSE_NORMALIZATIONS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"(GENERATED\s+(?:ALWAYS|BY\s+DEFAULT(?:\s+ON\s+NULL)?)\s+AS\s+IDENTITY)"
+            r"(?:\s+(?:MINVALUE\s+\d+|MAXVALUE\s+\d+|INCREMENT\s+BY\s+\d+"
+            r"|START\s+WITH\s+\d+|CACHE\s+\d+|NOCACHE|ORDER|NOORDER|CYCLE|NOCYCLE"
+            r"|KEEP|NOKEEP|SCALE|NOSCALE|EXTEND|NOEXTEND|SESSION|GLOBAL))*",
+            re.IGNORECASE,
+        ),
+        r"\1",
+    ),
+    (
+        re.compile(
+            r"\s+(?:ENABLE|DISABLE)(?:\s+(?:NOVALIDATE|VALIDATE))?\b"
+            r"|\s+(?:NOVALIDATE|VALIDATE)\b"
+        ),
+        "",
+    ),
+    (re.compile(r"\s+VIRTUAL\b", re.IGNORECASE), ""),
 )
 
 
@@ -156,7 +176,7 @@ def _load_csv(
     rows = []
     # SQL*Plus spools may lead with a BOM depending on client configuration.
     with path.open(encoding="utf-8-sig", newline="") as fh:
-        for record in csv.DictReader(fh):
+        for record in csv.DictReader(_data_lines(fh)):
             rows.append(
                 tuple(
                     _coerce(column, record.get(header))
@@ -165,6 +185,16 @@ def _load_csv(
             )
     conn.executemany(sql, rows)
     return len(rows)
+
+
+def _data_lines(fh: TextIO) -> Iterator[str]:
+    # SQL*Plus opens every spool with a blank line before the CSV header;
+    # skip leading blanks so DictReader reads the real header first.
+    for line in fh:
+        if line.strip():
+            yield line
+            break
+    yield from fh
 
 
 def _coerce(column: str, value: str | None) -> str | int | None:
@@ -195,8 +225,11 @@ def _load_ddl(conn: sqlite3.Connection, path: Path) -> int:
 
 
 def _oracle_parse_error(statement: str) -> str | None:
+    normalized = statement
+    for pattern, replacement in PARSE_NORMALIZATIONS:
+        normalized = pattern.sub(replacement, normalized)
     try:
-        sqlglot.parse(CONSTRAINT_STATE.sub("", statement), dialect="oracle")
+        sqlglot.parse(normalized, dialect="oracle")
     except SqlglotError as exc:
         return str(exc)
     return None

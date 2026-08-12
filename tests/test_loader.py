@@ -21,7 +21,7 @@ def test_counts_match_fixture(loaded: tuple[dict[str, int], Path]) -> None:
     assert counts["source"] == 11
     assert counts["features"] == 4
     assert counts["dependencies"] == 2
-    assert counts["ddl"] == 3
+    assert counts["ddl"] == 4
 
 
 def test_columns_are_typed(loaded: tuple[dict[str, int], Path]) -> None:
@@ -45,7 +45,9 @@ def test_ddl_parse_outcome_is_recorded(loaded: tuple[dict[str, int], Path]) -> N
     ok = dict(
         conn.execute("SELECT name, parse_ok FROM ddl WHERE type = 'TABLE'").fetchall()
     )
-    assert ok == {"EMP": 1, "BROKEN": 0}
+    # INVOICES carries the identity-options tail DBMS_METADATA emits;
+    # it must parse after normalization.
+    assert ok == {"EMP": 1, "INVOICES": 1, "BROKEN": 0}
     error = conn.execute(
         "SELECT parse_error FROM ddl WHERE name = 'BROKEN'"
     ).fetchone()[0]

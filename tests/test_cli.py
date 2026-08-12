@@ -31,4 +31,4 @@ def test_load_and_info(dump_basic: Path, tmp_path: Path) -> None:
     result = runner.invoke(app, ["info", "--db", str(db)])
     assert result.exit_code == 0
     assert "schema: HR" in result.output
-    assert "ddl parsed: 2/3" in result.output
+    assert "ddl parsed: 3/4" in result.output
