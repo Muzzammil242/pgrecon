@@ -14,3 +14,12 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 - Legacy extract script for Oracle 9.2 through 11.1: hand-built CSV
   for old SQL*Plus clients, catalog reconstruction instead of
   DBMS_METADATA. Verified end to end against Oracle XE 11g.
+- Structured facts on both tiers: constraints with their columns and
+  check conditions, indexes with columns and function-based
+  expressions, partitioning strategy and key columns, synonym targets,
+  trigger metadata. Verified against both containers.
+- Runtime version guards in the standard script: a too-old client or
+  server stops with a message pointing at the legacy variant instead
+  of spooling a broken dump.
+- pgrecon script --source-version picks the right variant from the
+  Oracle version; --legacy remains as an explicit override.

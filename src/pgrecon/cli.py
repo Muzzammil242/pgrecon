@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 
 from pgrecon import __version__
-from pgrecon.extract import script_text
+from pgrecon.extract import needs_legacy, script_text
 from pgrecon.inventory import load_dump
 
 # sqlglot logs a warning whenever exotic syntax makes it fall back to an
@@ -49,19 +49,32 @@ def script(
     out: Annotated[
         Path, typer.Option(help="Where to write the extraction script.")
     ] = Path("pgrecon_extract.sql"),
+    source_version: Annotated[
+        str | None,
+        typer.Option(
+            "--source-version",
+            help="Oracle version of the source, e.g. 9.2, 11.2, 19."
+            " Picks the right script variant.",
+        ),
+    ] = None,
     legacy: Annotated[
         bool,
         typer.Option(
             "--legacy",
-            help="Variant for Oracle 9.2-11.1 or old SQL*Plus clients.",
+            help="Force the variant for Oracle 9.2-11.1 or old clients.",
         ),
     ] = False,
 ) -> None:
     """Write the offline SQL*Plus extraction script for the client DBA."""
+    if source_version is not None:
+        try:
+            legacy = legacy or needs_legacy(source_version)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
     if legacy and out.name == "pgrecon_extract.sql":
         out = out.with_name("pgrecon_extract_legacy.sql")
     out.write_text(script_text(legacy), encoding="ascii", newline="\n")
-    typer.echo(f"Wrote {out}")
+    typer.echo(f"Wrote {out}" + (" (legacy variant)" if legacy else ""))
     typer.echo("Run it as: sqlplus readonly_user@service @" + out.name + " SCHEMA")
 
 

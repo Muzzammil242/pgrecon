@@ -36,6 +36,26 @@ def test_legacy_script_avoids_modern_client_features(tmp_path: Path) -> None:
     assert "PGRECON_OBJECT VIEW" in text
 
 
+def test_source_version_picks_variant(tmp_path: Path) -> None:
+    out = tmp_path / "for_10g.sql"
+    result = runner.invoke(
+        app, ["script", "--source-version", "10.2", "--out", str(out)]
+    )
+    assert result.exit_code == 0
+    assert "legacy variant" in result.output
+    assert "DBMS_METADATA.GET_DDL" not in out.read_text(encoding="ascii")
+
+    out = tmp_path / "for_19c.sql"
+    result = runner.invoke(app, ["script", "--source-version", "19", "--out", str(out)])
+    assert result.exit_code == 0
+    assert "DBMS_METADATA.GET_DDL" in out.read_text(encoding="ascii")
+
+
+def test_source_version_rejects_garbage() -> None:
+    result = runner.invoke(app, ["script", "--source-version", "banana"])
+    assert result.exit_code != 0
+
+
 def test_load_and_info(dump_basic: Path, tmp_path: Path) -> None:
     db = tmp_path / "inventory.db"
     result = runner.invoke(app, ["load", str(dump_basic), "--db", str(db)])
