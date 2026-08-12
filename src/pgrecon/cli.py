@@ -1,7 +1,9 @@
 """Command-line interface."""
 
+import json
 import logging
 import sqlite3
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
 
@@ -10,6 +12,7 @@ import typer
 from pgrecon import __version__
 from pgrecon.extract import needs_legacy, script_text
 from pgrecon.inventory import load_dump
+from pgrecon.rules.engine import run_rules, summarize
 
 # sqlglot logs a warning whenever exotic syntax makes it fall back to an
 # opaque statement; the outcome is already recorded in the inventory, so
@@ -94,6 +97,48 @@ def load(
     for name, count in sorted(counts.items()):
         typer.echo(f"{name:<{width}}  {count}")
     typer.echo(f"Inventory written to {db}")
+
+
+@app.command()
+def report(
+    db: Annotated[
+        Path,
+        typer.Option(exists=True, dir_okay=False, help="Inventory database."),
+    ] = Path("inventory.db"),
+    fmt: Annotated[
+        str, typer.Option("--format", help="Output format: text or json.")
+    ] = "text",
+) -> None:
+    """Run the assessment rules and print the findings."""
+    findings = run_rules(db)
+    summary = summarize(findings)
+
+    if fmt == "json":
+        payload = {"summary": summary, "findings": [asdict(f) for f in findings]}
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    if fmt != "text":
+        raise typer.BadParameter("format must be text or json")
+
+    if not findings:
+        typer.echo("No findings.")
+        return
+    widths = (
+        max(len(f.severity.value) for f in findings),
+        max(len(f.rule_id) for f in findings),
+        max(len(f.name) for f in findings),
+    )
+    for f in findings:
+        typer.echo(
+            f"{f.severity.value:<{widths[0]}}  {f.rule_id:<{widths[1]}}"
+            f"  {f.name:<{widths[2]}}  {f.detail}"
+        )
+    typer.echo("")
+    parts = [f"{n} {sev}" for sev, n in summary["by_severity"].items()]
+    typer.echo(
+        f"{summary['findings']} findings ({', '.join(parts)});"
+        f" effort points {summary['effort_points']}"
+    )
 
 
 @app.command()
