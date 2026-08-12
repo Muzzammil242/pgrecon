@@ -1,0 +1,14 @@
+
+"FEATURE","DETAIL","CNT"
+"materialized_views","schema total",1
+"db_links","owned or public",1
+"vpd_policies","row level security",0
+"scheduler_jobs","schema total",1
+"legacy_jobs","dbms_job",0
+"queues","advanced queuing",0
+"triggers","schema total",2
+"object_types","user defined",1
+"partitioned_tables","schema total",1
+"iot_tables","index organized",0
+"external_tables","schema total",0
+"temporary_tables","global temporary",1

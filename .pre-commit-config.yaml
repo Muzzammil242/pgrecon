@@ -6,7 +6,9 @@ repos:
     hooks:
       - id: check-added-large-files
       - id: end-of-file-fixer
+        exclude: ^(tests/fixtures/|examples/dump_)
       - id: trailing-whitespace
+        exclude: ^(tests/fixtures/|examples/dump_)
       - id: check-merge-conflict
 
   - repo: https://github.com/astral-sh/ruff-pre-commit

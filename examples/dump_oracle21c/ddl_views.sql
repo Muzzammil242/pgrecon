@@ -1,0 +1,20 @@
+
+-- PGRECON_OBJECT VIEW RECON_TEST.V_EMP_DEPT
+
+  CREATE OR REPLACE FORCE EDITIONABLE VIEW "RECON_TEST"."V_EMP_DEPT" ("ENAME", "SAL", "DNAME") AS
+  SELECT e.ename, e.sal, d.dname
+  FROM emp e, dept d
+ WHERE e.deptno = d.deptno (+);
+
+-- PGRECON_OBJECT VIEW RECON_TEST.V_ORG_CHART
+
+  CREATE OR REPLACE FORCE EDITIONABLE VIEW "RECON_TEST"."V_ORG_CHART" ("EMPNO", "ENAME", "MGR", "DEPTH", "CHAIN") AS
+  SELECT empno,
+       ename,
+       mgr,
+       LEVEL AS depth,
+       SYS_CONNECT_BY_PATH(ename, '/') AS chain
+  FROM emp
+ START WITH mgr IS NULL
+CONNECT BY PRIOR empno = mgr;
+
