@@ -77,6 +77,39 @@ RULES = [
         ),
     ),
     Rule(
+        id="R-OBJ-05",
+        title="User-defined object type",
+        category="objects",
+        severity=Severity.MEDIUM,
+        effort=2.5,
+        remedy=(
+            "Composite types carry the attributes, but member functions"
+            " do not exist in PostgreSQL: each method becomes a standalone"
+            " function taking the composite as its first argument, and"
+            " every call site changes."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, type, 'object type' FROM objects WHERE type = 'TYPE'"
+        ),
+    ),
+    Rule(
+        id="R-OBJ-06",
+        title="Synonym",
+        category="objects",
+        severity=Severity.LOW,
+        effort=0.3,
+        remedy=(
+            "PostgreSQL has no synonyms. Same-database synonyms usually"
+            " dissolve into search_path; cross-schema renames become views"
+            " or schema qualification at the call sites."
+        ),
+        detector=sql_detector(
+            "SELECT owner, synonym_name, 'SYNONYM',"
+            " 'for ' || COALESCE(table_owner || '.', '') || table_name"
+            " FROM synonyms WHERE db_link IS NULL OR db_link = ''"
+        ),
+    ),
+    Rule(
         id="R-DDL-01",
         title="DDL the parser could not read",
         category="extraction",

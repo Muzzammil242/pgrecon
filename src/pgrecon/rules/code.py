@@ -110,6 +110,40 @@ RULES = [
         ),
     ),
     Rule(
+        id="R-SRC-06",
+        title="REF CURSOR",
+        category="plsql",
+        severity=Severity.MEDIUM,
+        effort=1.0,
+        remedy=(
+            "PostgreSQL refcursor exists but behaves differently: it is"
+            " bound to the transaction and callers fetch with FETCH, not"
+            " a client result set. Interfaces returning SYS_REFCURSOR to"
+            " applications usually become set-returning functions."
+        ),
+        detector=sql_detector(_source_grep("REF CURSOR", "REF CURSOR")),
+    ),
+    Rule(
+        id="R-SRC-07",
+        title="Swallowed exception",
+        category="plsql",
+        severity=Severity.INFO,
+        effort=0.2,
+        remedy=(
+            "WHEN OTHERS THEN NULL hides every failure including the ones"
+            " a migration introduces. Worth removing before the port so"
+            " the test phase can actually see errors."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, type,"
+            " 'WHEN OTHERS THEN NULL (first at line ' || MIN(line) || ')'"
+            " AS detail FROM source"
+            " WHERE REPLACE(UPPER(text), ' ', '')"
+            " LIKE '%WHENOTHERSTHENNULL%'"
+            " GROUP BY owner, name, type"
+        ),
+    ),
+    Rule(
         id="R-SRC-05",
         title="Old-style outer join (+)",
         category="sql",

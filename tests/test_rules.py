@@ -107,6 +107,90 @@ def test_connect_by_found_in_source_and_view_ddl(
     assert sorted(fired(db, "R-SRC-04")) == ["ORG_PROC", "V_TREE"]
 
 
+def test_package_state_fires_on_body_not_spec(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    spec = [
+        (1, "PACKAGE clean_pkg AS"),
+        (2, "  FUNCTION f RETURN NUMBER;"),
+        (3, "END clean_pkg;"),
+    ]
+    body = [
+        (1, "PACKAGE BODY stateful_pkg AS"),
+        (2, "  g_total NUMBER := 0;"),
+        (3, "  g_name  VARCHAR2(30);"),
+        (4, "  FUNCTION f RETURN NUMBER IS"),
+        (5, "  BEGIN RETURN g_total; END;"),
+        (6, "END stateful_pkg;"),
+    ]
+    for line, text in spec:
+        conn.execute(
+            "INSERT INTO source (owner, name, type, line, text)"
+            " VALUES ('HR', 'CLEAN_PKG', 'PACKAGE', ?, ?)",
+            (line, text),
+        )
+    for line, text in body:
+        conn.execute(
+            "INSERT INTO source (owner, name, type, line, text)"
+            " VALUES ('HR', 'STATEFUL_PKG', 'PACKAGE BODY', ?, ?)",
+            (line, text),
+        )
+    conn.commit()
+    findings = [f for f in run_rules(db) if f.rule_id == "R-PKG-01"]
+    assert [f.name for f in findings] == ["STATEFUL_PKG"]
+    assert "2 package-level declaration(s)" in findings[0].detail
+
+
+def test_package_init_block_heuristic(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    body = [
+        (1, "PACKAGE BODY init_pkg AS"),
+        (2, "  PROCEDURE p IS"),
+        (3, "  BEGIN NULL; END;"),
+        (4, "BEGIN"),
+        (5, "  init_something();"),
+        (6, "END init_pkg;"),
+    ]
+    for line, text in body:
+        conn.execute(
+            "INSERT INTO source (owner, name, type, line, text)"
+            " VALUES ('HR', 'INIT_PKG', 'PACKAGE BODY', ?, ?)",
+            (line, text),
+        )
+    conn.commit()
+    assert fired(db, "R-PKG-02") == ["INIT_PKG"]
+
+
+def test_supplied_package_usage(inventory: tuple[sqlite3.Connection, Path]) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'LOADER', 'PROCEDURE', 9,"
+        " '  l_file := UTL_FILE.FOPEN(dir, name, mode);')"
+    )
+    conn.commit()
+    findings = [f for f in run_rules(db) if f.rule_id == "R-SYS-01"]
+    assert len(findings) == 1
+    assert "line 9" in findings[0].detail
+
+
+def test_reserved_word_column(inventory: tuple[sqlite3.Connection, Path]) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO columns (owner, table_name, column_name, data_type)"
+        " VALUES ('HR', 'ACCOUNTS', 'USER', 'VARCHAR2')"
+    )
+    conn.execute(
+        "INSERT INTO columns (owner, table_name, column_name, data_type)"
+        " VALUES ('HR', 'ACCOUNTS', 'USERNAME', 'VARCHAR2')"
+    )
+    conn.commit()
+    assert fired(db, "R-TYPE-05") == ["ACCOUNTS.USER"]
+
+
 def test_summary_counts_and_effort(tmp_path: Path, dump_basic: Path) -> None:
     db = tmp_path / "inv.db"
     load_dump(dump_basic, db)
@@ -121,8 +205,9 @@ def test_findings_on_fixture_dump(tmp_path: Path, dump_basic: Path) -> None:
     load_dump(dump_basic, db)
     ids = {f.rule_id for f in run_rules(db)}
     # Interval partitioning, the unparseable DDL statement, the
-    # function-based index, and the db-link probe are in the fixture.
-    assert {"R-PART-01", "R-DDL-01", "R-IDX-02", "R-OBJ-01"} <= ids
+    # function-based index, the db-link probe, and the package body
+    # with a module-level variable are all in the fixture.
+    assert {"R-PART-01", "R-DDL-01", "R-IDX-02", "R-OBJ-01", "R-PKG-01"} <= ids
     # No compound trigger and no LONG column in the fixture.
     assert "R-TRG-01" not in ids
     assert "R-TYPE-01" not in ids

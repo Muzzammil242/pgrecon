@@ -53,6 +53,33 @@ RULES = [
         ),
     ),
     Rule(
+        id="R-TYPE-05",
+        title="Column named after a PostgreSQL reserved word",
+        category="data types",
+        severity=Severity.INFO,
+        effort=0.2,
+        remedy=(
+            "Legal in Oracle, but in PostgreSQL the name must be quoted"
+            " everywhere or renamed once during migration. Renaming is"
+            " cheaper than a lifetime of quoting."
+        ),
+        detector=sql_detector(
+            "SELECT owner, table_name || '.' || column_name, 'COLUMN',"
+            " 'reserved word in PostgreSQL' FROM columns"
+            " WHERE UPPER(column_name) IN ("
+            "'ALL','ANALYSE','ANALYZE','AND','ANY','ARRAY','AS','ASC',"
+            "'BOTH','CASE','CAST','CHECK','COLLATE','COLUMN','CONSTRAINT',"
+            "'DEFAULT','DEFERRABLE','DESC','DISTINCT','DO','ELSE','END',"
+            "'EXCEPT','FOR','FOREIGN','FROM','GRANT','GROUP','HAVING',"
+            "'IN','INITIALLY','INTERSECT','INTO','LATERAL','LEADING',"
+            "'LIMIT','LOCALTIME','NOT','NULL','OFFSET','ON','ONLY','OR',"
+            "'ORDER','PLACING','PRIMARY','REFERENCES','RETURNING',"
+            "'SELECT','SOME','SYMMETRIC','TABLE','THEN','TO','TRAILING',"
+            "'UNION','UNIQUE','USER','USING','VARIADIC','WHEN','WHERE',"
+            "'WINDOW','WITH')"
+        ),
+    ),
+    Rule(
         id="R-TYPE-04",
         title="NUMBER without precision",
         category="data types",

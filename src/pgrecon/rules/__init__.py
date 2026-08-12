@@ -61,9 +61,16 @@ def sql_detector(query: str) -> Detector:
 
 
 def all_rules() -> list[Rule]:
-    from pgrecon.rules import code, columns, objects, storage
+    from pgrecon.rules import code, columns, objects, packages, storage, syspackages
 
-    rules = [*columns.RULES, *storage.RULES, *code.RULES, *objects.RULES]
+    rules = [
+        *columns.RULES,
+        *storage.RULES,
+        *code.RULES,
+        *packages.RULES,
+        *syspackages.RULES,
+        *objects.RULES,
+    ]
     ids = [rule.id for rule in rules]
     if len(ids) != len(set(ids)):
         raise ValueError("duplicate rule id in registry")

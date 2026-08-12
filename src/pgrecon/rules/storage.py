@@ -57,6 +57,40 @@ RULES = [
         ),
     ),
     Rule(
+        id="R-TAB-02",
+        title="Index-organized table",
+        category="tables",
+        severity=Severity.MEDIUM,
+        effort=1.5,
+        remedy=(
+            "PostgreSQL stores all tables as heaps. A plain table with a"
+            " primary key covers correctness; if the access pattern relied"
+            " on IOT clustering, consider CLUSTER or a covering index."
+        ),
+        detector=sql_detector(
+            "SELECT feature, detail, 'FEATURE', count || ' index-organized'"
+            " || ' table(s)' FROM features"
+            " WHERE feature = 'iot_tables' AND count > 0"
+        ),
+    ),
+    Rule(
+        id="R-TAB-03",
+        title="External table",
+        category="tables",
+        severity=Severity.MEDIUM,
+        effort=2.0,
+        remedy=(
+            "Map to file_fdw for flat files, or move the load into the"
+            " application or COPY jobs. Driver options and error handling"
+            " do not carry over."
+        ),
+        extension="file_fdw",
+        detector=sql_detector(
+            "SELECT feature, detail, 'FEATURE', count || ' external table(s)'"
+            " FROM features WHERE feature = 'external_tables' AND count > 0"
+        ),
+    ),
+    Rule(
         id="R-IDX-01",
         title="Bitmap index",
         category="indexes",
