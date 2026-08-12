@@ -26,8 +26,12 @@ Commit style follows the PostgreSQL and Linux kernel projects, not
   tests.
 - One logical change per commit. No "WIP", no "misc", no "update file".
 - Plain ASCII everywhere: source, comments, docs, commit messages.
-  No emoji, no unicode symbols. Test fixtures are the only exemption,
-  and only for encoding-related tests.
+  No emoji, no unicode symbols. Two narrow exemptions exist for
+  encoding tests: files under tests/fixtures and examples/, and string
+  literals inside test modules, where the test data itself is the
+  point. Comments, identifiers, and docstrings stay ASCII even in
+  tests; src/ is strict with no exception. tools/check_ascii.py
+  enforces exactly this.
 - History is linear: rebase onto main and fast-forward. No merge
   commits.
 
