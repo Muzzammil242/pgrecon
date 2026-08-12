@@ -22,6 +22,20 @@ def test_script_writes_reviewable_sql(tmp_path: Path) -> None:
     assert "SET MARKUP CSV ON" in text
 
 
+def test_legacy_script_avoids_modern_client_features(tmp_path: Path) -> None:
+    out = tmp_path / "extract_legacy.sql"
+    result = runner.invoke(app, ["script", "--legacy", "--out", str(out)])
+    assert result.exit_code == 0
+    text = out.read_text(encoding="ascii")
+    # The legacy variant must run on a 9.2 server with its own client:
+    # no CSV markup, no DBMS_METADATA calls, no 10g-only dictionary
+    # views. Header comments may mention them; commands may not.
+    assert "SET MARKUP CSV ON" not in text
+    assert "DBMS_METADATA.GET_DDL" not in text
+    assert "all_scheduler_jobs" not in text
+    assert "PGRECON_OBJECT VIEW" in text
+
+
 def test_load_and_info(dump_basic: Path, tmp_path: Path) -> None:
     db = tmp_path / "inventory.db"
     result = runner.invoke(app, ["load", str(dump_basic), "--db", str(db)])

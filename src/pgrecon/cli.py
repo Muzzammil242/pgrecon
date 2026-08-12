@@ -49,9 +49,18 @@ def script(
     out: Annotated[
         Path, typer.Option(help="Where to write the extraction script.")
     ] = Path("pgrecon_extract.sql"),
+    legacy: Annotated[
+        bool,
+        typer.Option(
+            "--legacy",
+            help="Variant for Oracle 9.2-11.1 or old SQL*Plus clients.",
+        ),
+    ] = False,
 ) -> None:
     """Write the offline SQL*Plus extraction script for the client DBA."""
-    out.write_text(script_text(), encoding="ascii", newline="\n")
+    if legacy and out.name == "pgrecon_extract.sql":
+        out = out.with_name("pgrecon_extract_legacy.sql")
+    out.write_text(script_text(legacy), encoding="ascii", newline="\n")
     typer.echo(f"Wrote {out}")
     typer.echo("Run it as: sqlplus readonly_user@service @" + out.name + " SCHEMA")
 
