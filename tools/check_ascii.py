@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 CHECKED_SUFFIXES = {".py", ".sql", ".md", ".toml", ".yml", ".yaml", ".cfg"}
-EXEMPT_PARTS = {"fixtures", ".venv", ".git", "__pycache__"}
+EXEMPT_PARTS = {"fixtures", "dump", ".venv", ".git", "__pycache__"}
 
 
 def iter_files(root: Path) -> list[Path]:
