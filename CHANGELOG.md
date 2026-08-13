@@ -2,7 +2,7 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## 0.1.0 - 2026-08-13
+## 0.1.0 - 2026-08-14
 
 First public release: offline extraction, a queryable inventory, and a
 49-rule assessment engine, verified end to end against real Oracle XE
