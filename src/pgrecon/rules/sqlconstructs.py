@@ -5,7 +5,7 @@ fallback; view bodies are text in the ddl table and stay grep-based
 until views get their own parse.
 """
 
-from pgrecon.rules import Rule, Severity, feature_grep, source_grep, sql_detector
+from pgrecon.rules import Rule, Severity, feature_grep, sql_detector
 
 RULES = [
     Rule(
@@ -85,7 +85,13 @@ RULES = [
             " concurrency behavior; on older targets use INSERT ON"
             " CONFLICT. Each MERGE needs a per-statement decision."
         ),
-        detector=sql_detector(source_grep("MERGE INTO", "MERGE INTO")),
+        detector=sql_detector(
+            feature_grep(
+                ("merge",),
+                "UPPER(s.text) LIKE '%MERGE INTO%'",
+                "MERGE INTO",
+            )
+        ),
     ),
     Rule(
         id="R-SRC-10",

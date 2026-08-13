@@ -535,3 +535,29 @@ def test_query_rewrite_mview_fires(
     )
     conn.commit()
     assert fired(db, "R-PERF-05") == ["MV_HOT"]
+
+
+def test_raise_application_error_reads_call_graph(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'P_CALM', 'PROCEDURE', 3, '  -- RAISE_APPLICATION_ERROR docs')"
+    )
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'P_CALM', 'PROCEDURE', 'sll', 0, NULL)"
+    )
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'P_LOUD', 'PROCEDURE', 'sll', 0, NULL)"
+    )
+    conn.execute(
+        "INSERT INTO plsql_calls (owner, name, type, callee, line) VALUES"
+        " ('HR', 'P_LOUD', 'PROCEDURE', 'RAISE_APPLICATION_ERROR', 9)"
+    )
+    conn.commit()
+    assert fired(db, "R-SRC-13") == ["P_LOUD"]

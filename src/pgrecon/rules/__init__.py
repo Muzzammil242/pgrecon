@@ -60,16 +60,6 @@ def sql_detector(query: str) -> Detector:
     return run
 
 
-def source_grep(pattern: str, label: str) -> str:
-    """Query for one finding per object whose source contains pattern."""
-    return (
-        "SELECT owner, name, type,"
-        f" '{label} (first at line ' || MIN(line) || ')' AS detail"
-        " FROM source WHERE UPPER(text) LIKE UPPER('%" + pattern + "%')"
-        " GROUP BY owner, name, type"
-    )
-
-
 def feature_grep(features: tuple[str, ...], fallback_where: str, label: str) -> str:
     """Query deep parse facts, with a token grep for unparsed units.
 

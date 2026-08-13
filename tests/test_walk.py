@@ -174,3 +174,30 @@ def test_rowid_usage_is_flagged() -> None:
     assert analysis.errors == ()
     lines = [f.line for f in analysis.features if f.feature == "rowid"]
     assert lines == [2, 4, 5]
+
+
+def test_merge_statement_is_flagged() -> None:
+    unit = (
+        "PROCEDURE p IS\n"
+        "BEGIN\n"
+        "  MERGE INTO tgt t USING src s ON (t.id = s.id)\n"
+        "  WHEN MATCHED THEN UPDATE SET t.v = s.v\n"
+        "  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v);\n"
+        "END;"
+    )
+    analysis = analyze_source(unit)
+    assert analysis.errors == ()
+    assert [f.line for f in analysis.features if f.feature == "merge"] == [3]
+
+
+def test_ref_cursor_declarations_are_flagged() -> None:
+    unit = (
+        "PACKAGE p AS\n"
+        "  -- REF CURSOR mentioned in prose only\n"
+        "  TYPE t_cur IS REF CURSOR;\n"
+        "  FUNCTION open_it RETURN SYS_REFCURSOR;\n"
+        "END p;"
+    )
+    analysis = analyze_source(unit)
+    assert analysis.errors == ()
+    assert [f.line for f in analysis.features if f.feature == "ref_cursor"] == [3, 4]

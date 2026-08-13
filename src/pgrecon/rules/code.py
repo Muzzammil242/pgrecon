@@ -5,7 +5,7 @@ token-level greps for units the parser rejected, so precision comes
 from the tree and coverage never drops below what greps gave.
 """
 
-from pgrecon.rules import Rule, Severity, feature_grep, source_grep, sql_detector
+from pgrecon.rules import Rule, Severity, feature_grep, sql_detector
 
 RULES = [
     Rule(
@@ -126,7 +126,14 @@ RULES = [
             " a client result set. Interfaces returning SYS_REFCURSOR to"
             " applications usually become set-returning functions."
         ),
-        detector=sql_detector(source_grep("REF CURSOR", "REF CURSOR")),
+        detector=sql_detector(
+            feature_grep(
+                ("ref_cursor",),
+                "UPPER(s.text) LIKE '%REF CURSOR%'"
+                " OR UPPER(s.text) LIKE '%SYS_REFCURSOR%'",
+                "REF CURSOR",
+            )
+        ),
     ),
     Rule(
         id="R-SRC-07",
@@ -178,7 +185,20 @@ RULES = [
             " those numbers need a translation table."
         ),
         detector=sql_detector(
-            source_grep("RAISE_APPLICATION_ERROR", "RAISE_APPLICATION_ERROR")
+            "SELECT owner, name, type,"
+            " 'RAISE_APPLICATION_ERROR (first at line ' || MIN(line) || ')'"
+            " AS detail FROM plsql_calls"
+            " WHERE callee = 'RAISE_APPLICATION_ERROR'"
+            " GROUP BY owner, name, type"
+            " UNION ALL"
+            " SELECT s.owner, s.name, s.type,"
+            " 'RAISE_APPLICATION_ERROR (first at line ' || MIN(s.line) || ')'"
+            " AS detail FROM source s"
+            " WHERE UPPER(s.text) LIKE '%RAISE_APPLICATION_ERROR%'"
+            " AND NOT EXISTS (SELECT 1 FROM plsql_units u"
+            " WHERE u.owner = s.owner AND u.name = s.name AND u.type = s.type"
+            " AND u.error_count = 0)"
+            " GROUP BY s.owner, s.name, s.type"
         ),
     ),
     Rule(

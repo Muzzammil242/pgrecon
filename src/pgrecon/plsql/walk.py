@@ -95,6 +95,12 @@ class _FeatureListener(PlSqlParserListener):  # type: ignore[misc]
         if [s.getText().upper() for s in seq.statement()] == ["NULL"]:
             self._add(ctx, "when_others_null")
 
+    def enterMerge_statement(self, ctx: Any) -> None:
+        self._add(ctx, "merge")
+
+    def enterRef_cursor_type_def(self, ctx: Any) -> None:
+        self._add(ctx, "ref_cursor")
+
     def enterCall_statement(self, ctx: Any) -> None:
         names = [r.getText().upper() for r in ctx.routine_name()]
         self.calls.append(Call(".".join(names), ctx.start.line))
@@ -152,6 +158,14 @@ def _scan_tokens(stream: Any) -> list[Feature]:
         elif token.type == PlSqlLexer.BULK:
             if nxt is not None and nxt.type == PlSqlLexer.COLLECT:
                 features.append(Feature("bulk_collect", token.line, None))
+        elif (
+            token.type == PlSqlLexer.REGULAR_ID
+            and token.text.upper() == "SYS_REFCURSOR"
+        ):
+            # SYS_REFCURSOR is not a keyword to the lexer, just a
+            # predefined type name; Ref_cursor_type_def catches the
+            # TYPE ... IS REF CURSOR declarations.
+            features.append(Feature("ref_cursor", token.line, None))
         elif token.type == PlSqlLexer.CHAR_STRING and token.text == "''":
             # A standalone empty-string literal, which Oracle treats as
             # NULL and PostgreSQL does not. An escaped quote inside a
