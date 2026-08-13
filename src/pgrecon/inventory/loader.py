@@ -285,7 +285,11 @@ def load_dump(
         for path in sorted(dump_dir.glob("ddl_*.sql")):
             text = _read_text(path, encoding, lossy)
             counts["ddl"] += _load_ddl(conn, text)
-        counts["plsql_units"], counts["plsql_features"] = _analyze_plsql(conn)
+        (
+            counts["plsql_units"],
+            counts["plsql_features"],
+            counts["plsql_calls"],
+        ) = _analyze_plsql(conn)
         conn.executemany(
             "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
             [
@@ -372,7 +376,7 @@ def _load_ddl(conn: sqlite3.Connection, text: str) -> int:
     return len(rows)
 
 
-def _analyze_plsql(conn: sqlite3.Connection) -> tuple[int, int]:
+def _analyze_plsql(conn: sqlite3.Connection) -> tuple[int, int, int]:
     """Deep-parse every stored unit and persist facts for the rules.
 
     Features come only from units that parse clean; a unit that does
@@ -396,6 +400,7 @@ def _analyze_plsql(conn: sqlite3.Connection) -> tuple[int, int]:
     if groups:
         logger.info("deep parse: %d stored units", len(groups))
     feature_count = 0
+    call_count = 0
     for i, ((owner, name, otype), lines) in enumerate(groups.items(), start=1):
         analysis = analyze_source("".join(lines))
         if analysis.errors:
@@ -429,9 +434,15 @@ def _analyze_plsql(conn: sqlite3.Connection) -> tuple[int, int]:
             ],
         )
         feature_count += len(analysis.features)
+        conn.executemany(
+            "INSERT INTO plsql_calls (owner, name, type, callee, line)"
+            " VALUES (?, ?, ?, ?, ?)",
+            [(owner, name, otype, call.callee, call.line) for call in analysis.calls],
+        )
+        call_count += len(analysis.calls)
         if i % 200 == 0:
             logger.info("deep parse: %d/%d units", i, len(groups))
-    return len(groups), feature_count
+    return len(groups), feature_count, call_count
 
 
 def _oracle_parse(statement: str) -> tuple[str | None, str | None]:

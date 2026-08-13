@@ -205,3 +205,11 @@ CREATE TABLE plsql_features (
     line    INTEGER NOT NULL,
     detail  TEXT
 );
+
+CREATE TABLE plsql_calls (
+    owner  TEXT NOT NULL,
+    name   TEXT NOT NULL,
+    type   TEXT NOT NULL,
+    callee TEXT NOT NULL,
+    line   INTEGER NOT NULL
+);
