@@ -350,6 +350,11 @@ def test_pre_deep_parse_inventory_still_reports(
     conn.execute("DROP TABLE plsql_units")
     conn.execute("DROP TABLE plsql_features")
     conn.execute("DROP TABLE plsql_calls")
+    conn.execute("DROP TABLE part_indexes")
+    conn.execute("DROP TABLE mviews")
+    conn.execute("DROP TABLE plan_management")
+    conn.execute("ALTER TABLE tables DROP COLUMN degree")
+    conn.execute("ALTER TABLE indexes DROP COLUMN degree")
     conn.execute(
         "INSERT INTO source (owner, name, type, line, text) VALUES"
         " ('HR', 'OLD_PROC', 'PROCEDURE', 2, '  v := SYSDATE;')"
@@ -450,3 +455,83 @@ def test_rowid_code_fact_fires(
     findings = [f for f in run_rules(db) if f.rule_id == "R-SRC-19"]
     assert [f.name for f in findings] == ["P_BYRID"]
     assert "line 14" in findings[0].detail
+
+
+def test_global_partitioned_index_fires(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO part_tables (owner, table_name, partitioning_type)"
+        " VALUES ('HR', 'SALES', 'RANGE')"
+    )
+    conn.execute(
+        "INSERT INTO part_indexes (owner, index_name, table_name, locality)"
+        " VALUES ('HR', 'SALES_GPI', 'SALES', 'GLOBAL')"
+    )
+    conn.execute(
+        "INSERT INTO part_indexes (owner, index_name, table_name, locality)"
+        " VALUES ('HR', 'SALES_LIX', 'SALES', 'LOCAL')"
+    )
+    conn.execute(
+        "INSERT INTO indexes (owner, index_name, table_name, generated)"
+        " VALUES ('HR', 'PK_SALES', 'SALES', 'N')"
+    )
+    conn.execute(
+        "INSERT INTO indexes (owner, index_name, table_name, generated)"
+        " VALUES ('HR', 'SALES_LIX', 'SALES', 'N')"
+    )
+    conn.commit()
+    assert fired(db, "R-PERF-02") == ["PK_SALES", "SALES_GPI"]
+
+
+def test_parallel_degree_fires_on_real_settings_only(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    for name, degree in [("T_PAR", "4"), ("T_DEF", "DEFAULT"), ("T_SER", "1")]:
+        conn.execute(
+            "INSERT INTO tables (owner, table_name, degree) VALUES ('HR', ?, ?)",
+            (name, degree),
+        )
+    conn.execute(
+        "INSERT INTO indexes (owner, index_name, degree) VALUES"
+        " ('HR', 'IX_PAR', '   8')"
+    )
+    conn.commit()
+    assert fired(db, "R-PERF-03") == ["IX_PAR", "T_DEF", "T_PAR"]
+
+
+def test_plan_management_aggregates_per_kind(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    for kind, name in [
+        ("BASELINE", "SQL_PLAN_1"),
+        ("BASELINE", "SQL_PLAN_2"),
+        ("OUTLINE", "OL_ORDERS"),
+    ]:
+        conn.execute(
+            "INSERT INTO plan_management (kind, name, enabled) VALUES (?, ?, 'YES')",
+            (kind, name),
+        )
+    conn.commit()
+    findings = [f for f in run_rules(db) if f.rule_id == "R-PERF-04"]
+    assert [f.name for f in findings] == ["BASELINE", "OUTLINE"]
+    assert "2 pinned plan(s)" in findings[0].detail
+
+
+def test_query_rewrite_mview_fires(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO mviews (owner, mview_name, rewrite_enabled, refresh_method)"
+        " VALUES ('HR', 'MV_HOT', 'Y', 'FORCE')"
+    )
+    conn.execute(
+        "INSERT INTO mviews (owner, mview_name, rewrite_enabled, refresh_method)"
+        " VALUES ('HR', 'MV_PLAIN', 'N', 'COMPLETE')"
+    )
+    conn.commit()
+    assert fired(db, "R-PERF-05") == ["MV_HOT"]

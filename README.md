@@ -109,7 +109,7 @@ variant for you.
 
 ## What it checks
 
-57 rules at present, each shipping with fixture tests:
+61 rules at present, each shipping with fixture tests:
 
 | Category        | Rules | Among them |
 | --------------- | ----- | ---------- |
@@ -120,7 +120,7 @@ variant for you.
 | Packages        | 2     | package-level state, initialization blocks |
 | System packages | 5     | UTL_FILE, UTL_HTTP/SMTP/TCP, DBMS_SQL, DBMS_LOB, DBMS_OUTPUT |
 | Schema objects  | 11    | database links, scheduler jobs, materialized views, queues, VPD policies, unparseable DDL |
-| Performance     | 1     | optimizer hints |
+| Performance     | 5     | optimizer hints, global indexes on partitioned tables, plan baselines, query-rewrite MVs |
 
 Stored PL/SQL is parsed with a full grammar, and code findings come
 from the syntax tree and token stream, never from comments or string

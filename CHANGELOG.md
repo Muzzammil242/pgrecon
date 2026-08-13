@@ -23,6 +23,10 @@ Extraction
 - Runtime guards stop a too-old client or server with a message
   pointing at the right variant instead of spooling a broken dump.
   pgrecon script --source-version picks the variant automatically.
+- Performance posture is extracted: partitioned-index locality,
+  per-object parallel degree, query-rewrite and refresh settings of
+  materialized views, and SQL plan baselines and stored outlines
+  (outlines only on the legacy tier).
 - Scripts instruct the DBA to export NLS_LANG=.AL32UTF8 so dumps spool
   as UTF-8 regardless of the database character set.
 
@@ -66,7 +70,7 @@ PL/SQL analysis
 
 Rules
 
-- 57 deterministic rules across data types, storage, PL/SQL code, SQL
+- 61 deterministic rules across data types, storage, PL/SQL code, SQL
   constructs, package structure, system package usage, schema
   objects, and performance. Every rule ships with fixture tests.
 - ROWID, UROWID, and BFILE columns get type rules, and ROWID usage in

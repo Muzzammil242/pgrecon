@@ -50,6 +50,28 @@ def _shim_missing_tables(conn: sqlite3.Connection) -> None:
             "CREATE TEMP TABLE plsql_calls (owner TEXT, name TEXT, type TEXT,"
             " callee TEXT, line INTEGER)"
         )
+    if "part_indexes" not in present:
+        conn.execute(
+            "CREATE TEMP TABLE part_indexes (owner TEXT, index_name TEXT,"
+            " table_name TEXT, locality TEXT)"
+        )
+    if "mviews" not in present:
+        conn.execute(
+            "CREATE TEMP TABLE mviews (owner TEXT, mview_name TEXT,"
+            " rewrite_enabled TEXT, refresh_method TEXT)"
+        )
+    if "plan_management" not in present:
+        conn.execute(
+            "CREATE TEMP TABLE plan_management (kind TEXT, name TEXT, enabled TEXT)"
+        )
+    # Older inventories have these tables without the degree column.
+    # A temp table cannot shadow a real one, so add the column in the
+    # file: NULL-filled, which is exactly what those dumps knew.
+    for table in ("tables", "indexes"):
+        if table in present:
+            columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+            if "degree" not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN degree TEXT")
 
 
 def run_rules(db_path: Path, rules: list[Rule] | None = None) -> list[Finding]:
