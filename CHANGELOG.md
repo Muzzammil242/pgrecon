@@ -66,9 +66,13 @@ PL/SQL analysis
 
 Rules
 
-- 53 deterministic rules across data types, storage, PL/SQL code, SQL
+- 54 deterministic rules across data types, storage, PL/SQL code, SQL
   constructs, package structure, system package usage, schema
   objects, and performance. Every rule ships with fixture tests.
+- The empty-string trap gets its own rule: Oracle treats '' as NULL
+  and PostgreSQL does not, so every empty-string literal is a site
+  where behavior changes silently. The lexer tells a real '' from the
+  escaped quote in 'don''t', which text matching cannot.
 - The performance category starts with optimizer hints: statements
   tuned by hand for Oracle's planner are marked for a fresh plan on
   PostgreSQL instead of a blind rewrite.

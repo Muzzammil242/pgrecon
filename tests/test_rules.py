@@ -392,3 +392,22 @@ def test_sys_package_call_fact_fires(
     findings = [f for f in run_rules(db) if f.rule_id == "R-SYS-01"]
     assert [f.name for f in findings] == ["P_FILES"]
     assert "line 11" in findings[0].detail
+
+
+def test_empty_string_fact_fires(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'P_BLANKS', 'PROCEDURE', 'sll', 0, NULL)"
+    )
+    conn.execute(
+        "INSERT INTO plsql_features (owner, name, type, feature, line, detail)"
+        " VALUES ('HR', 'P_BLANKS', 'PROCEDURE', 'empty_string_literal', 6, NULL)"
+    )
+    conn.commit()
+    findings = [f for f in run_rules(db) if f.rule_id == "R-SRC-18"]
+    assert [f.name for f in findings] == ["P_BLANKS"]
+    assert "line 6" in findings[0].detail

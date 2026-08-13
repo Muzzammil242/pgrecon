@@ -150,6 +150,12 @@ def _scan_tokens(stream: Any) -> list[Feature]:
         elif token.type == PlSqlLexer.BULK:
             if nxt is not None and nxt.type == PlSqlLexer.COLLECT:
                 features.append(Feature("bulk_collect", token.line, None))
+        elif token.type == PlSqlLexer.CHAR_STRING and token.text == "''":
+            # A standalone empty-string literal, which Oracle treats as
+            # NULL and PostgreSQL does not. An escaped quote inside a
+            # string ('don''t') is one CHAR_STRING token and never
+            # matches here, which is what text matching gets wrong.
+            features.append(Feature("empty_string_literal", token.line, None))
         elif (
             token.type in _CURSOR_ATTRIBUTES
             and prev is not None

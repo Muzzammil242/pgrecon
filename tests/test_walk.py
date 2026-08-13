@@ -134,3 +134,28 @@ def test_package_named_in_comment_is_not_a_call() -> None:
     )
     analysis = analyze_source(unit)
     assert analysis.calls == ()
+
+
+def test_empty_string_literal_is_flagged() -> None:
+    unit = (
+        "PROCEDURE p IS\n"
+        "  v VARCHAR2(10);\n"
+        "BEGIN\n"
+        "  v := '';\n"
+        "  IF v = '' THEN\n"
+        "    NULL;\n"
+        "  END IF;\n"
+        "END;"
+    )
+    analysis = analyze_source(unit)
+    lines = [f.line for f in analysis.features if f.feature == "empty_string_literal"]
+    assert lines == [4, 5]
+
+
+def test_escaped_quote_inside_string_is_not_empty() -> None:
+    # 'don''t' carries two consecutive quote characters, which is an
+    # escaped quote, not an empty-string literal; text matching cannot
+    # tell these apart, the lexer can.
+    unit = "PROCEDURE p IS\n  v VARCHAR2(10) := 'don''t';\nBEGIN\n  NULL;\nEND;"
+    analysis = analyze_source(unit)
+    assert all(f.feature != "empty_string_literal" for f in analysis.features)

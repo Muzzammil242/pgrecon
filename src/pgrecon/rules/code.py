@@ -240,6 +240,28 @@ RULES = [
         ),
     ),
     Rule(
+        id="R-SRC-18",
+        title="Empty string treated as NULL",
+        category="plsql",
+        severity=Severity.MEDIUM,
+        effort=1.0,
+        remedy=(
+            "Oracle treats '' as NULL; PostgreSQL treats it as a real"
+            " value. v := '' assigns NULL in Oracle but an empty string"
+            " in PostgreSQL, NVL(x, '') stops collapsing, and col = ''"
+            " can start matching rows. Nothing errors: behavior changes"
+            " silently. Decide per site whether NULL or empty was meant,"
+            " and put the data path under test."
+        ),
+        detector=sql_detector(
+            feature_grep(
+                ("empty_string_literal",),
+                "s.text LIKE '%''''%'",
+                "empty-string literal",
+            )
+        ),
+    ),
+    Rule(
         id="R-SRC-17",
         title="Pipelined table function",
         category="plsql",
