@@ -114,7 +114,8 @@ SELECT owner,
        num_rows,
        avg_row_len,
        partitioned,
-       temporary
+       temporary,
+       degree
   FROM all_tables
  WHERE owner = UPPER('&schema')
    AND nested = 'NO'
@@ -189,7 +190,8 @@ SELECT owner,
        index_type,
        uniqueness,
        status,
-       generated
+       generated,
+       degree
   FROM all_indexes
  WHERE owner = UPPER('&schema')
    AND index_name NOT LIKE 'BIN$%'
@@ -251,6 +253,37 @@ SELECT owner, db_link, username, host
   FROM dba_db_links
  WHERE owner IN (UPPER('&schema'), 'PUBLIC')
  ORDER BY owner, db_link;
+SPOOL OFF
+
+-- Partitioned-index locality: GLOBAL indexes have no PostgreSQL
+-- equivalent, and unique keys there must contain the partition key.
+SPOOL part_indexes.csv
+SELECT owner, index_name, table_name, locality
+  FROM all_part_indexes
+ WHERE owner = UPPER('&schema')
+ ORDER BY index_name;
+SPOOL OFF
+
+-- Query-rewrite and refresh settings drive how each materialized
+-- view's consumers must change.
+SPOOL mviews.csv
+SELECT owner, mview_name, rewrite_enabled, refresh_method
+  FROM all_mviews
+ WHERE owner = UPPER('&schema')
+ ORDER BY mview_name;
+SPOOL OFF
+
+-- Plan-stability machinery. A schema leaning on baselines or stored
+-- outlines loses that workflow entirely on the PostgreSQL side.
+SPOOL plan_management.csv
+SELECT 'BASELINE' AS kind, plan_name AS name, enabled
+  FROM dba_sql_plan_baselines
+ WHERE parsing_schema_name = UPPER('&schema')
+UNION ALL
+SELECT 'OUTLINE', name, enabled
+  FROM dba_outlines
+ WHERE owner = UPPER('&schema')
+ ORDER BY 1, 2;
 SPOOL OFF
 
 -- Feature probes: one row per feature with a count. Each of these

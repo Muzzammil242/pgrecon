@@ -84,12 +84,14 @@ SELECT '"' || owner || '","' || REPLACE(object_name, '"', '""') || '","'
 SPOOL OFF
 
 SPOOL tables.csv
-SELECT '"OWNER","TABLE_NAME","NUM_ROWS","AVG_ROW_LEN","PARTITIONED","TEMPORARY"'
+SELECT '"OWNER","TABLE_NAME","NUM_ROWS","AVG_ROW_LEN","PARTITIONED",'
+       || '"TEMPORARY","DEGREE"'
   FROM dual;
 SELECT '"' || owner || '","' || REPLACE(table_name, '"', '""') || '",'
        || NVL(TO_CHAR(num_rows), '') || ','
        || NVL(TO_CHAR(avg_row_len), '') || ',"'
-       || partitioned || '","' || temporary || '"'
+       || partitioned || '","' || temporary || '","'
+       || TRIM(NVL(degree, '')) || '"'
   FROM all_tables
  WHERE owner = UPPER('&schema')
    AND nested = 'NO'
@@ -168,11 +170,12 @@ SPOOL OFF
 
 SPOOL indexes.csv
 SELECT '"OWNER","INDEX_NAME","TABLE_NAME","INDEX_TYPE","UNIQUENESS",'
-       || '"STATUS","GENERATED"'
+       || '"STATUS","GENERATED","DEGREE"'
   FROM dual;
 SELECT '"' || owner || '","' || REPLACE(index_name, '"', '""') || '","'
        || REPLACE(table_name, '"', '""') || '","' || index_type || '","'
-       || uniqueness || '","' || status || '","' || generated || '"'
+       || uniqueness || '","' || status || '","' || generated || '","'
+       || TRIM(NVL(degree, '')) || '"'
   FROM all_indexes
  WHERE owner = UPPER('&schema')
    AND index_name NOT LIKE 'BIN$%'
@@ -236,6 +239,35 @@ SELECT '"' || owner || '","' || REPLACE(db_link, '"', '""') || '","'
   FROM dba_db_links
  WHERE owner IN (UPPER('&schema'), 'PUBLIC')
  ORDER BY owner, db_link;
+SPOOL OFF
+
+SPOOL part_indexes.csv
+SELECT '"OWNER","INDEX_NAME","TABLE_NAME","LOCALITY"' FROM dual;
+SELECT '"' || owner || '","' || REPLACE(index_name, '"', '""') || '","'
+       || REPLACE(table_name, '"', '""') || '","' || locality || '"'
+  FROM all_part_indexes
+ WHERE owner = UPPER('&schema')
+ ORDER BY index_name;
+SPOOL OFF
+
+SPOOL mviews.csv
+SELECT '"OWNER","MVIEW_NAME","REWRITE_ENABLED","REFRESH_METHOD"' FROM dual;
+SELECT '"' || owner || '","' || REPLACE(mview_name, '"', '""') || '","'
+       || rewrite_enabled || '","' || NVL(refresh_method, '') || '"'
+  FROM all_mviews
+ WHERE owner = UPPER('&schema')
+ ORDER BY mview_name;
+SPOOL OFF
+
+-- No DBA_SQL_PLAN_BASELINES before 11.1; stored outlines are the
+-- plan-stability mechanism of this era.
+SPOOL plan_management.csv
+SELECT '"KIND","NAME","ENABLED"' FROM dual;
+SELECT '"OUTLINE","' || REPLACE(name, '"', '""') || '","'
+       || NVL(enabled, '') || '"'
+  FROM dba_outlines
+ WHERE owner = UPPER('&schema')
+ ORDER BY name;
 SPOOL OFF
 
 SPOOL triggers.csv
