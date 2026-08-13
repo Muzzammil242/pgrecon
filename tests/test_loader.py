@@ -223,3 +223,16 @@ def test_reload_replaces_database(dump_basic: Path, tmp_path: Path) -> None:
     load_dump(dump_basic, db)
     counts = load_dump(dump_basic, db)
     assert counts["objects"] == 5
+
+
+def test_deep_parse_records_units(loaded: tuple[dict[str, int], Path]) -> None:
+    counts, db = loaded
+    assert counts["plsql_units"] == 2
+    conn = sqlite3.connect(db)
+    rows = dict(
+        conn.execute("SELECT type, error_count FROM plsql_units WHERE name = 'EMP_PKG'")
+    )
+    # Both halves of the package parse clean even though the fixture
+    # stores source lines without trailing newlines; the loader joins
+    # them back into a real unit before parsing.
+    assert rows == {"PACKAGE": 0, "PACKAGE BODY": 0}

@@ -3,6 +3,7 @@
 import json
 import logging
 import sqlite3
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
@@ -43,8 +44,23 @@ def main(
             help="Print the version and exit.",
         ),
     ] = False,
+    verbose: Annotated[
+        int,
+        typer.Option(
+            "--verbose",
+            "-v",
+            count=True,
+            help="Log progress to stderr; repeat for debug detail.",
+        ),
+    ] = 0,
 ) -> None:
-    pass
+    # Logs go to stderr and never carry PL/SQL body text, so stdout
+    # stays clean for reports and the log stays safe to share.
+    logging.basicConfig(
+        level=logging.WARNING - 10 * min(verbose, 2),
+        stream=sys.stderr,
+        format="%(levelname)s: %(message)s",
+    )
 
 
 @app.command()

@@ -186,3 +186,22 @@ CREATE TABLE triggers (
     status           TEXT,
     PRIMARY KEY (owner, trigger_name)
 );
+
+CREATE TABLE plsql_units (
+    owner       TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    type        TEXT NOT NULL,
+    parse_mode  TEXT NOT NULL,
+    error_count INTEGER NOT NULL,
+    first_error TEXT,
+    PRIMARY KEY (owner, name, type)
+);
+
+CREATE TABLE plsql_features (
+    owner   TEXT NOT NULL,
+    name    TEXT NOT NULL,
+    type    TEXT NOT NULL,
+    feature TEXT NOT NULL,
+    line    INTEGER NOT NULL,
+    detail  TEXT
+);

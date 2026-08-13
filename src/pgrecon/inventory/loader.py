@@ -13,6 +13,7 @@ recorded, never dropped: unparseable DDL is itself an assessment signal.
 
 import csv
 import io
+import logging
 import re
 import sqlite3
 from collections.abc import Iterator
@@ -22,6 +23,8 @@ from typing import TextIO
 
 import sqlglot
 from sqlglot.errors import SqlglotError
+
+logger = logging.getLogger("pgrecon.inventory")
 
 # CSV file name -> (inventory table, dump header -> column mapping).
 # Files missing from the dump are skipped; a partial dump still loads.
@@ -282,6 +285,7 @@ def load_dump(
         for path in sorted(dump_dir.glob("ddl_*.sql")):
             text = _read_text(path, encoding, lossy)
             counts["ddl"] += _load_ddl(conn, text)
+        counts["plsql_units"], counts["plsql_features"] = _analyze_plsql(conn)
         conn.executemany(
             "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
             [
@@ -366,6 +370,68 @@ def _load_ddl(conn: sqlite3.Connection, text: str) -> int:
         rows,
     )
     return len(rows)
+
+
+def _analyze_plsql(conn: sqlite3.Connection) -> tuple[int, int]:
+    """Deep-parse every stored unit and persist facts for the rules.
+
+    Features come only from units that parse clean; a unit that does
+    not is recorded with its first error and keeps token-level rule
+    coverage. The import is deferred because the generated parser
+    costs real time to load and only this step needs it.
+    """
+    from pgrecon.plsql.walk import analyze_source
+
+    groups: dict[tuple[str, str, str], list[str]] = {}
+    for owner, name, otype, text in conn.execute(
+        "SELECT owner, name, type, text FROM source ORDER BY owner, name, type, line"
+    ):
+        # Real dumps carry the newline inside each source line; the
+        # parser and its line numbers need it either way.
+        line = text or "\n"
+        if not line.endswith("\n"):
+            line += "\n"
+        groups.setdefault((owner, name, otype), []).append(line)
+
+    if groups:
+        logger.info("deep parse: %d stored units", len(groups))
+    feature_count = 0
+    for i, ((owner, name, otype), lines) in enumerate(groups.items(), start=1):
+        analysis = analyze_source("".join(lines))
+        if analysis.errors:
+            logger.warning(
+                "%s.%s (%s): %d syntax errors, token-level coverage only",
+                owner,
+                name,
+                otype,
+                len(analysis.errors),
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO plsql_units"
+            " (owner, name, type, parse_mode, error_count, first_error)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                owner,
+                name,
+                otype,
+                analysis.mode,
+                len(analysis.errors),
+                analysis.errors[0] if analysis.errors else None,
+            ),
+        )
+        conn.executemany(
+            "INSERT INTO plsql_features"
+            " (owner, name, type, feature, line, detail)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (owner, name, otype, f.feature, f.line, f.detail)
+                for f in analysis.features
+            ],
+        )
+        feature_count += len(analysis.features)
+        if i % 200 == 0:
+            logger.info("deep parse: %d/%d units", i, len(groups))
+    return len(groups), feature_count
 
 
 def _oracle_parse(statement: str) -> tuple[str | None, str | None]:
