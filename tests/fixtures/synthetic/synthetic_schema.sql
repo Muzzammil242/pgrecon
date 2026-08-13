@@ -5,8 +5,11 @@
 -- an initialization block, a compound trigger, an autonomous
 -- transaction, CONNECT BY, interval partitioning, LONG and XMLTYPE
 -- columns, a scheduler job, an object type with a body, a loopback
--- database link, and a materialized view. Every construct here should
--- eventually be caught by at least one assessment rule.
+-- database link, a materialized view registered for query rewrite,
+-- ROWID and BFILE columns, a global partitioned index, forced
+-- parallelism, hinted SQL, supplied-package calls, and the
+-- empty-string trap. Every construct here should eventually be
+-- caught by at least one assessment rule.
 --
 -- Run against a disposable database only:
 --   sqlplus system/<password>@localhost/XEPDB1 @synthetic_schema.sql
@@ -35,6 +38,8 @@ GRANT CREATE SESSION,
       CREATE DATABASE LINK,
       CREATE JOB
    TO recon_test;
+
+GRANT QUERY REWRITE TO recon_test;
 
 CONNECT recon_test/"ReconT3st_x"@localhost/XEPDB1
 
@@ -352,6 +357,52 @@ BEGIN
         enabled         => FALSE,
         comments        => 'Synthetic job for assessment testing');
 END;
+/
+
+-- ---------------------------------------------------------------
+-- Performance posture and code traps: legacy row addressing, an
+-- external file pointer, forced parallelism, a global partitioned
+-- index, query rewrite, hinted SQL, and the empty-string NULL trap.
+-- ---------------------------------------------------------------
+
+CREATE TABLE legacy_refs (
+    ref_id   NUMBER(10)   PRIMARY KEY,
+    ref_addr ROWID,
+    scan_doc BFILE,
+    note     VARCHAR2(100)
+);
+
+ALTER TABLE sales PARALLEL 4;
+
+CREATE INDEX sales_amount_gix ON sales (amount)
+    GLOBAL PARTITION BY HASH (amount) PARTITIONS 4;
+
+ALTER MATERIALIZED VIEW mv_dept_salaries ENABLE QUERY REWRITE;
+
+CREATE OR REPLACE PROCEDURE archive_notes AS
+    l_out  UTL_FILE.FILE_TYPE;
+    l_rid  ROWID;
+    l_note VARCHAR2(100) := '';
+    l_len  NUMBER;
+    l_doc  CLOB;
+BEGIN
+    SELECT /*+ FULL(n) PARALLEL(n, 2) */ MIN(rowid)
+      INTO l_rid
+      FROM legacy_notes n;
+    IF l_note = '' THEN
+        l_note := 'no note';
+    END IF;
+    l_len := DBMS_LOB.GETLENGTH(l_doc);
+    pkg_ledger.post_sale(l_len, 'ARCHIVE');
+    l_out := UTL_FILE.FOPEN('DATA_PUMP_DIR', 'notes.txt', 'w');
+    UTL_FILE.PUT_LINE(l_out, l_note || TO_CHAR(pkg_ledger.run_total));
+    UTL_FILE.FCLOSE(l_out);
+    DBMS_OUTPUT.PUT_LINE('archived at ' || TO_CHAR(SYSDATE));
+    DELETE FROM legacy_notes WHERE rowid = l_rid;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL;
+END archive_notes;
 /
 
 PROMPT synthetic schema created

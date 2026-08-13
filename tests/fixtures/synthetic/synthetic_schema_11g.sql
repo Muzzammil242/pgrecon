@@ -36,6 +36,13 @@ GRANT CREATE SESSION,
       CREATE JOB
    TO recon_test;
 
+GRANT QUERY REWRITE TO recon_test;
+
+-- 11g XE ships without PUBLIC execute on UTL_FILE; harmless where
+-- PUBLIC already has it. If SYSTEM may not grant on SYS objects in
+-- your instance, run it once as SYSDBA instead.
+GRANT EXECUTE ON SYS.UTL_FILE TO recon_test;
+
 CONNECT recon_test/"ReconT3st_x"@//localhost/XE
 
 CREATE TABLE dept (
@@ -315,6 +322,49 @@ BEGIN
         enabled         => FALSE,
         comments        => 'Synthetic job for assessment testing');
 END;
+/
+
+-- ---------------------------------------------------------------
+-- Performance posture and code traps, 11g edition: no partitioning
+-- on XE 11, so no global index; the rest matches the main schema.
+-- ---------------------------------------------------------------
+
+CREATE TABLE legacy_refs (
+    ref_id   NUMBER(10)   PRIMARY KEY,
+    ref_addr ROWID,
+    scan_doc BFILE,
+    note     VARCHAR2(100)
+);
+
+ALTER TABLE sales PARALLEL 4;
+
+-- No ENABLE QUERY REWRITE here: materialized view rewrite is not
+-- enabled in 11g XE (ORA-00439). The 21c schema demonstrates it.
+
+CREATE OR REPLACE PROCEDURE archive_notes AS
+    l_out  UTL_FILE.FILE_TYPE;
+    l_rid  ROWID;
+    l_note VARCHAR2(100) := '';
+    l_len  NUMBER;
+    l_doc  CLOB;
+BEGIN
+    SELECT /*+ FULL(n) PARALLEL(n, 2) */ MIN(rowid)
+      INTO l_rid
+      FROM legacy_notes n;
+    IF l_note = '' THEN
+        l_note := 'no note';
+    END IF;
+    l_len := DBMS_LOB.GETLENGTH(l_doc);
+    pkg_ledger.post_sale(l_len, 'ARCHIVE');
+    l_out := UTL_FILE.FOPEN('DATA_PUMP_DIR', 'notes.txt', 'w');
+    UTL_FILE.PUT_LINE(l_out, l_note || TO_CHAR(pkg_ledger.run_total));
+    UTL_FILE.FCLOSE(l_out);
+    DBMS_OUTPUT.PUT_LINE('archived at ' || TO_CHAR(SYSDATE));
+    DELETE FROM legacy_notes WHERE rowid = l_rid;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL;
+END archive_notes;
 /
 
 PROMPT synthetic schema (11g variant) created
