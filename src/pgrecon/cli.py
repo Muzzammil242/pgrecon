@@ -13,6 +13,8 @@ from typing import Annotated
 import typer
 
 from pgrecon import __version__
+from pgrecon.effort import estimate as build_estimate
+from pgrecon.effort import person_months
 from pgrecon.extract import needs_legacy, script_text
 from pgrecon.inventory import load_dump
 from pgrecon.rules import Rule, all_rules
@@ -209,6 +211,61 @@ def _rule_meta(rule: Rule) -> dict[str, object]:
 
 def _wrap(text: str) -> str:
     return textwrap.fill(text, width=76, initial_indent="  ", subsequent_indent="  ")
+
+
+@app.command()
+def estimate(
+    db: Annotated[
+        Path,
+        typer.Option(exists=True, dir_okay=False, help="Inventory database."),
+    ] = Path("inventory.db"),
+    fmt: Annotated[
+        str, typer.Option("--format", help="Output format: text or json.")
+    ] = "text",
+) -> None:
+    """Estimate migration effort in person-days, as a range."""
+    findings = run_rules(db)
+    result = build_estimate(db, findings)
+
+    if fmt == "json":
+        payload = {
+            "components": {c.label: c.person_days for c in result.components},
+            "development_person_days": result.development,
+            "person_days": {
+                "low": result.low,
+                "expected": result.expected,
+                "high": result.high,
+            },
+            "person_months": {
+                "low": person_months(result.low),
+                "expected": person_months(result.expected),
+                "high": person_months(result.high),
+            },
+            "assumptions": list(result.assumptions),
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    if fmt != "text":
+        raise typer.BadParameter("format must be text or json")
+
+    typer.echo("Migration effort estimate (person-days)")
+    typer.echo("")
+    width = max(len(c.label) for c in result.components)
+    for c in result.components:
+        typer.echo(f"  {c.label:<{width}}  {c.person_days:8.1f}")
+    typer.echo(f"  {'development subtotal':<{width}}  {result.development:8.1f}")
+    typer.echo("")
+    typer.echo("With testing and stabilization:")
+    typer.echo(
+        f"  low {result.low:.0f}, expected {result.expected:.0f},"
+        f" high {result.high:.0f} person-days"
+        f" ({person_months(result.low):.1f} to"
+        f" {person_months(result.high):.1f} person-months)"
+    )
+    typer.echo("")
+    typer.echo("Assumptions:")
+    for line in result.assumptions:
+        typer.echo(_wrap("- " + line))
 
 
 @app.command()

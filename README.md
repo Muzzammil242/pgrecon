@@ -138,12 +138,37 @@ explain R-PKG-01` prints one rule's writeup (bare `pgrecon explain`
 lists the catalog), and the JSON payload carries the same metadata in
 a rules map for integrations.
 
+## Estimating effort
+
+    uv run pgrecon estimate --db sample.db
+
+    Migration effort estimate (person-days)
+
+      baseline and environment       7.4
+      schema conversion              1.7
+      finding remediation           73.3
+      PL/SQL porting by volume       0.8
+      data movement                  0.0
+      development subtotal          83.1
+
+    With testing and stabilization:
+      low 108, expected 133, high 183 person-days (5.1 to 8.7 person-months)
+
+The estimate is a sum of named components, so it can be argued with
+line by line, and it is a range, because a point estimate for a
+migration is a lie. Repeated findings of one rule cost a
+severity-dependent fraction of the first fix, testing and
+stabilization is applied on top at the share field reports actually
+describe, and every run prints its assumptions. The rates are a
+deliberately conservative default calibration; treat the output as a
+scoping instrument, not a quote.
+
 ## Status
 
 Alpha. The extraction scripts and inventory are stable; the rule
-catalog is growing. Effort points are relative weights for comparing
-findings, not hours; the model that turns them into person-day ranges
-is still ahead.
+catalog is growing. Effort points in the report are relative weights
+for sorting findings; person-day ranges come from pgrecon estimate
+and its visible calibration.
 
 ## Development
 

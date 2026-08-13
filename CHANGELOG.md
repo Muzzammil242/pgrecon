@@ -101,6 +101,12 @@ CLI
   shows one rule's writeup or lists the catalog, and the JSON payload
   carries a rules map with title, severity, effort, remedy, and
   extension for every rule that fired.
+- pgrecon estimate prices the migration in person-days from named
+  components: baseline, schema conversion, finding remediation with
+  severity-dependent repetition discounts, code volume, and data
+  movement, with a testing-and-stabilization factor range on top.
+  Every run prints its assumptions, and the JSON output carries the
+  same breakdown.
 - A bundled example dump (examples/dump_oracle21c, extracted from a
   real Oracle XE 21c instance) makes the whole pipeline runnable
   without an Oracle installation.

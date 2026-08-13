@@ -10,7 +10,7 @@ import ast
 import sys
 from pathlib import Path
 
-DETERMINISTIC_PACKAGES = ("extract", "inventory", "rules")
+DETERMINISTIC_PACKAGES = ("extract", "inventory", "rules", "plsql", "effort")
 FORBIDDEN_PREFIXES = ("pgrecon.ai", "anthropic")
 
 
@@ -34,10 +34,11 @@ def main() -> int:
     errors = []
     for package in DETERMINISTIC_PACKAGES:
         package_dir = src / package
-        if not package_dir.is_dir():
-            continue
-        for path in sorted(package_dir.rglob("*.py")):
-            errors.extend(forbidden_imports(path))
+        if package_dir.is_dir():
+            for path in sorted(package_dir.rglob("*.py")):
+                errors.extend(forbidden_imports(path))
+        elif package_dir.with_suffix(".py").is_file():
+            errors.extend(forbidden_imports(package_dir.with_suffix(".py")))
     for error in errors:
         print(error, file=sys.stderr)
     return 1 if errors else 0

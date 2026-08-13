@@ -104,7 +104,7 @@ def summarize(findings: list[Finding], rules: list[Rule] | None = None) -> Summa
             for s in SEVERITY_ORDER
             if by_severity.get(s.value)
         },
-        # Raw weight sum, a sorting signal only. The effort model that
-        # turns findings into person-day ranges is a later milestone.
+        # Raw weight sum, a sorting signal only. pgrecon estimate turns
+        # findings into person-day ranges.
         "effort_points": round(effort, 1),
     }
