@@ -1,6 +1,7 @@
 # pgrecon
 
 [![CI](https://github.com/Muzzammil242/pgrecon/actions/workflows/ci.yml/badge.svg)](https://github.com/Muzzammil242/pgrecon/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/pgrecon.svg)](https://pypi.org/project/pgrecon/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Migration reconnaissance for PostgreSQL. pgrecon inventories an Oracle
