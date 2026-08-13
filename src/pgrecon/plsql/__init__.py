@@ -26,6 +26,7 @@ class PlSqlParse:
     tree: Any | None
     mode: str
     errors: tuple[str, ...]
+    tokens: Any | None = None
 
 
 class _Collector(ErrorListener):  # type: ignore[misc]
@@ -38,29 +39,30 @@ class _Collector(ErrorListener):  # type: ignore[misc]
         self.errors.append(f"line {line}:{col} {msg}")
 
 
-def _parser_for(text: str) -> PlSqlParser:
+def _parser_for(text: str) -> tuple[PlSqlParser, CommonTokenStream]:
     lexer = PlSqlLexer(InputStream(text))
     lexer.removeErrorListeners()
-    return PlSqlParser(CommonTokenStream(lexer))
+    stream = CommonTokenStream(lexer)
+    return PlSqlParser(stream), stream
 
 
 def parse_unit(text: str) -> PlSqlParse:
     """Parse one complete SQL or PL/SQL statement."""
-    parser = _parser_for(text)
+    parser, stream = _parser_for(text)
     parser.removeErrorListeners()
     parser._interp.predictionMode = PredictionMode.SLL
     parser._errHandler = BailErrorStrategy()
     try:
-        return PlSqlParse(parser.sql_script(), "sll", ())
+        return PlSqlParse(parser.sql_script(), "sll", (), stream)
     except ParseCancellationException:
         pass
 
-    parser = _parser_for(text)
+    parser, stream = _parser_for(text)
     parser.removeErrorListeners()
     collector = _Collector()
     parser.addErrorListener(collector)
     tree = parser.sql_script()
-    return PlSqlParse(tree, "ll", tuple(collector.errors))
+    return PlSqlParse(tree, "ll", tuple(collector.errors), stream)
 
 
 def parse_source(text: str) -> PlSqlParse:
