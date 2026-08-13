@@ -10,13 +10,17 @@ The schema behind it is `tests/fixtures/synthetic/synthetic_schema.sql`,
 written to concentrate the constructs that make Oracle to PostgreSQL
 migrations expensive: a package with state and an initialization block,
 compound and autonomous-transaction triggers, an interval-partitioned
-table, LONG and XMLTYPE columns, a global temporary table, a
-materialized view, a scheduler job, an object type, a function-based
-index, a loopback database link, and hierarchical and (+) join views.
+table with a GLOBAL partitioned index and a forced parallel degree,
+LONG, XMLTYPE, ROWID, and BFILE columns, a global temporary table, a
+materialized view registered for query rewrite, a scheduler job, an
+object type, a function-based index, a loopback database link,
+hierarchical and (+) join views, and a procedure that calls UTL_FILE,
+DBMS_LOB, and another package while leaning on hinted SQL, ROWID
+fetches, and the empty-string NULL trap.
 
 Load and assess it without any Oracle installation:
 
     uv run pgrecon load examples/dump_oracle21c --db sample.db
     uv run pgrecon report --db sample.db
 
-Expected result: 29 objects, 42 findings, effort points 59.4.
+Expected result: 33 objects, 56 findings, effort points 76.7.

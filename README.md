@@ -42,17 +42,18 @@ Output (excerpt):
 
     high    R-OBJ-01   LOOPBACK           to //localhost:1521/XEPDB1 as RECON_TEST
     high    R-PART-01  SALES              INTERVAL NUMTOYMINTERVAL(1, 'MONTH')
+    high    R-PERF-02  SALES_AMOUNT_GIX   GLOBAL partitioned index on SALES
     high    R-PKG-01   PKG_LEDGER         2 package-level declaration(s), first at line 2
     high    R-PKG-01   PKG_LEDGER (body)  1 package-level declaration(s), first at line 2
-    high    R-TRG-01   TRG_EMP_SAL_GUARD  on EMP
+    high    R-SYS-01   ARCHIVE_NOTES      UTL_FILE (first at line 16)
     high    R-TRG-02   TRG_EMP_AUDIT      PRAGMA AUTONOMOUS_TRANSACTION (first at line 5)
     high    R-TYPE-01  LEGACY_NOTES.BODY  LONG
-    medium  R-OBJ-02   NIGHTLY_ROLLUP     scheduler job
-    medium  R-SRC-01   PKG_LEDGER         EXECUTE IMMEDIATE (first at line 27)
-    medium  R-TAB-01   STAGING_ROWS       GLOBAL TEMPORARY
+    high    R-TYPE-07  LEGACY_REFS.SCAN_DOC  BFILE
+    medium  R-SRC-18   ARCHIVE_NOTES      empty-string literal (first at line 4)
+    medium  R-SRC-19   ARCHIVE_NOTES      ROWID (first at line 3)
     ...
 
-    42 findings (7 high, 13 medium, 11 low, 11 info); effort points 59.4
+    56 findings (10 high, 18 medium, 15 low, 13 info); effort points 76.7
 
 Add `--remedies` to append what to do about each fired rule, or ask
 about one directly: `uv run pgrecon explain R-PKG-01`.
