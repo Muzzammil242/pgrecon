@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 authors = [
-    { name = "Muzzammil Sarwar", email = "justgood242@gmail.com" },
+    { name = "Muzzammil Sarwar", email = "muzzammil@umaish.com" },
 ]
 keywords = ["postgresql", "oracle", "migration", "assessment", "database"]
 classifiers = [
