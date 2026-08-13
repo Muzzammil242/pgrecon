@@ -4,6 +4,8 @@ import json
 import logging
 import sqlite3
 import sys
+import textwrap
+from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
@@ -13,6 +15,7 @@ import typer
 from pgrecon import __version__
 from pgrecon.extract import needs_legacy, script_text
 from pgrecon.inventory import load_dump
+from pgrecon.rules import Rule, all_rules
 from pgrecon.rules.engine import run_rules, summarize
 
 # sqlglot logs a warning whenever exotic syntax makes it fall back to an
@@ -131,13 +134,28 @@ def report(
     fmt: Annotated[
         str, typer.Option("--format", help="Output format: text or json.")
     ] = "text",
+    remedies: Annotated[
+        bool,
+        typer.Option(
+            "--remedies",
+            help="Append each fired rule's remedy to the text report.",
+        ),
+    ] = False,
 ) -> None:
     """Run the assessment rules and print the findings."""
     findings = run_rules(db)
     summary = summarize(findings)
+    by_id = {rule.id: rule for rule in all_rules()}
+    fired = {f.rule_id: by_id[f.rule_id] for f in findings}
 
     if fmt == "json":
-        payload = {"summary": summary, "findings": [asdict(f) for f in findings]}
+        payload = {
+            "summary": summary,
+            "findings": [asdict(f) for f in findings],
+            "rules": {
+                rule_id: _rule_meta(rule) for rule_id, rule in sorted(fired.items())
+            },
+        }
         typer.echo(json.dumps(payload, indent=2))
         return
     if fmt != "text":
@@ -162,6 +180,66 @@ def report(
         f"{summary['findings']} findings ({', '.join(parts)});"
         f" effort points {summary['effort_points']}"
     )
+
+    if remedies:
+        counts = Counter(f.rule_id for f in findings)
+        typer.echo("")
+        typer.echo("Remedies:")
+        for rule_id in dict.fromkeys(f.rule_id for f in findings):
+            rule = fired[rule_id]
+            n = counts[rule_id]
+            tags = [rule.severity.value, f"{n} finding" + ("s" if n != 1 else "")]
+            if rule.extension:
+                tags.append(f"extension {rule.extension}")
+            typer.echo("")
+            typer.echo(f"{rule.id}  {rule.title}  [{', '.join(tags)}]")
+            typer.echo(_wrap(rule.remedy))
+
+
+def _rule_meta(rule: Rule) -> dict[str, object]:
+    return {
+        "title": rule.title,
+        "category": rule.category,
+        "severity": rule.severity.value,
+        "effort": rule.effort,
+        "remedy": rule.remedy,
+        "extension": rule.extension,
+    }
+
+
+def _wrap(text: str) -> str:
+    return textwrap.fill(text, width=76, initial_indent="  ", subsequent_indent="  ")
+
+
+@app.command()
+def explain(
+    rule_id: Annotated[
+        str | None,
+        typer.Argument(help="Rule id, e.g. R-SRC-18. Omit to list the catalog."),
+    ] = None,
+) -> None:
+    """Show one rule's remedy, or list the whole catalog."""
+    rules = all_rules()
+    if rule_id is None:
+        width = max(len(rule.id) for rule in rules)
+        for rule in sorted(rules, key=lambda r: r.id):
+            typer.echo(f"{rule.id:<{width}}  {rule.severity.value:<7}  {rule.title}")
+        typer.echo("")
+        typer.echo(f"{len(rules)} rules")
+        return
+    match = {rule.id: rule for rule in rules}.get(rule_id.upper())
+    if match is None:
+        raise typer.BadParameter(f"unknown rule id: {rule_id}")
+    typer.echo(f"{match.id}: {match.title}")
+    line = (
+        f"severity: {match.severity.value}  effort: {match.effort}"
+        f"  category: {match.category}"
+    )
+    if match.extension:
+        line += f"  extension: {match.extension}"
+    typer.echo(line)
+    typer.echo("")
+    typer.echo(_wrap(match.remedy))
 
 
 @app.command()

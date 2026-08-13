@@ -89,6 +89,11 @@ CLI
 - pgrecon -v logs progress and per-unit parse warnings to stderr;
   stdout stays clean for report output, and logs never carry PL/SQL
   body text.
+- Remedies are part of the output: report --remedies appends each
+  fired rule's guidance with its helping extension, pgrecon explain
+  shows one rule's writeup or lists the catalog, and the JSON payload
+  carries a rules map with title, severity, effort, remedy, and
+  extension for every rule that fired.
 - A bundled example dump (examples/dump_oracle21c, extracted from a
   real Oracle XE 21c instance) makes the whole pipeline runnable
   without an Oracle installation.

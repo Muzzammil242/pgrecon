@@ -54,6 +54,9 @@ Output (excerpt):
 
     42 findings (7 high, 13 medium, 11 low, 11 info); effort points 59.4
 
+Add `--remedies` to append what to do about each fired rule, or ask
+about one directly: `uv run pgrecon explain R-PKG-01`.
+
 ## Assessing a real database
 
 1. Generate the extraction script for the source version:
@@ -127,11 +130,12 @@ queryable call graph, which is what the supplied-package rules read:
 UTL_FILE in a comment is not usage, UTL_FILE.FOPEN(...) is.
 
 Findings carry the rule id, severity (info to blocker), the object, and
-what was seen. The JSON output adds a summary with counts by severity
-and a provisional effort-point total. Each rule also defines remedy
-guidance and the PostgreSQL extension that helps (orafce, pgtt, and so
-on); surfacing those in a narrative report is where the project is
-headed next.
+what was seen. Every rule also defines remedy guidance and the
+PostgreSQL extension that helps (orafce, pgtt, and so on):
+`pgrecon report --remedies` appends it for each fired rule, `pgrecon
+explain R-PKG-01` prints one rule's writeup (bare `pgrecon explain`
+lists the catalog), and the JSON payload carries the same metadata in
+a rules map for integrations.
 
 ## Status
 

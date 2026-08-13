@@ -1,8 +1,10 @@
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
 
 from pgrecon.cli import app
+from pgrecon.inventory import open_db
 
 runner = CliRunner()
 
@@ -66,3 +68,63 @@ def test_load_and_info(dump_basic: Path, tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "schema: HR" in result.output
     assert "ddl parsed: 3/4" in result.output
+
+
+def test_report_remedies_appendix(tmp_path: Path) -> None:
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'P_BLANKS', 'PROCEDURE', 'sll', 0, NULL)"
+    )
+    conn.execute(
+        "INSERT INTO plsql_features (owner, name, type, feature, line, detail)"
+        " VALUES ('HR', 'P_BLANKS', 'PROCEDURE', 'empty_string_literal', 6, NULL)"
+    )
+    conn.commit()
+    conn.close()
+    result = runner.invoke(app, ["report", "--db", str(db), "--remedies"])
+    assert result.exit_code == 0
+    assert "Remedies:" in result.output
+    assert "R-SRC-18  Empty string treated as NULL  [medium, 1 finding]" in (
+        result.output
+    )
+    assert "Oracle treats '' as NULL" in result.output
+
+
+def test_report_json_carries_rule_metadata(tmp_path: Path) -> None:
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.execute(
+        "INSERT INTO columns (owner, table_name, column_name, data_type)"
+        " VALUES ('HR', 'NOTES', 'BODY', 'LONG')"
+    )
+    conn.commit()
+    conn.close()
+    result = runner.invoke(app, ["report", "--db", str(db), "--format", "json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    rule = payload["rules"]["R-TYPE-01"]
+    assert rule["severity"] == "high"
+    assert rule["remedy"]
+    assert set(payload["rules"]) == {f["rule_id"] for f in payload["findings"]}
+
+
+def test_explain_one_rule() -> None:
+    result = runner.invoke(app, ["explain", "r-src-18"])
+    assert result.exit_code == 0
+    assert "R-SRC-18: Empty string treated as NULL" in result.output
+    assert "severity: medium" in result.output
+
+
+def test_explain_lists_catalog() -> None:
+    result = runner.invoke(app, ["explain"])
+    assert result.exit_code == 0
+    assert "R-TYPE-01" in result.output
+    assert "54 rules" in result.output
+
+
+def test_explain_rejects_unknown_id() -> None:
+    result = runner.invoke(app, ["explain", "R-NOPE-99"])
+    assert result.exit_code != 0
