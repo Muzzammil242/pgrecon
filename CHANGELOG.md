@@ -60,6 +60,9 @@ PL/SQL analysis
   comments or string literals stop producing findings. Units that
   fail to parse keep token-level coverage, and inventories loaded by
   older versions still report through the same fallback.
+- Call sites land in a plsql_calls table (caller, callee, line): the
+  supplied-package rules read it instead of matching text, and it is
+  the raw material for dependency clustering in the report stage.
 
 Rules
 

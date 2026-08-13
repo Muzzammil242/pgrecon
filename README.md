@@ -122,7 +122,9 @@ variant for you.
 Stored PL/SQL is parsed with a full grammar, and code findings come
 from the syntax tree and token stream, never from comments or string
 literals. A unit the parser rejects keeps token-level coverage and is
-itself reported.
+itself reported. The parse also records every call site into a
+queryable call graph, which is what the supplied-package rules read:
+UTL_FILE in a comment is not usage, UTL_FILE.FOPEN(...) is.
 
 Findings carry the rule id, severity (info to blocker), the object, and
 what was seen. The JSON output adds a summary with counts by severity
