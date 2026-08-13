@@ -50,6 +50,7 @@ CSV_TABLES: dict[str, tuple[str, dict[str, str]]] = {
             "AVG_ROW_LEN": "avg_row_len",
             "PARTITIONED": "partitioned",
             "TEMPORARY": "temporary",
+            "DEGREE": "degree",
         },
     ),
     "columns.csv": (
@@ -132,6 +133,7 @@ CSV_TABLES: dict[str, tuple[str, dict[str, str]]] = {
             "UNIQUENESS": "uniqueness",
             "STATUS": "status",
             "GENERATED": "generated",
+            "DEGREE": "degree",
         },
     ),
     "index_columns.csv": (
@@ -202,6 +204,28 @@ CSV_TABLES: dict[str, tuple[str, dict[str, str]]] = {
             "USERNAME": "username",
             "HOST": "host",
         },
+    ),
+    "part_indexes.csv": (
+        "part_indexes",
+        {
+            "OWNER": "owner",
+            "INDEX_NAME": "index_name",
+            "TABLE_NAME": "table_name",
+            "LOCALITY": "locality",
+        },
+    ),
+    "mviews.csv": (
+        "mviews",
+        {
+            "OWNER": "owner",
+            "MVIEW_NAME": "mview_name",
+            "REWRITE_ENABLED": "rewrite_enabled",
+            "REFRESH_METHOD": "refresh_method",
+        },
+    ),
+    "plan_management.csv": (
+        "plan_management",
+        {"KIND": "kind", "NAME": "name", "ENABLED": "enabled"},
     ),
 }
 

@@ -23,6 +23,7 @@ CREATE TABLE tables (
     avg_row_len INTEGER,
     partitioned TEXT,
     temporary   TEXT,
+    degree      TEXT,
     PRIMARY KEY (owner, table_name)
 );
 
@@ -128,6 +129,7 @@ CREATE TABLE indexes (
     uniqueness TEXT,
     status     TEXT,
     generated  TEXT,
+    degree     TEXT,
     PRIMARY KEY (owner, index_name)
 );
 
@@ -212,4 +214,26 @@ CREATE TABLE plsql_calls (
     type   TEXT NOT NULL,
     callee TEXT NOT NULL,
     line   INTEGER NOT NULL
+);
+
+CREATE TABLE part_indexes (
+    owner      TEXT NOT NULL,
+    index_name TEXT NOT NULL,
+    table_name TEXT,
+    locality   TEXT,
+    PRIMARY KEY (owner, index_name)
+);
+
+CREATE TABLE mviews (
+    owner           TEXT NOT NULL,
+    mview_name      TEXT NOT NULL,
+    rewrite_enabled TEXT,
+    refresh_method  TEXT,
+    PRIMARY KEY (owner, mview_name)
+);
+
+CREATE TABLE plan_management (
+    kind    TEXT NOT NULL,
+    name    TEXT NOT NULL,
+    enabled TEXT
 );
