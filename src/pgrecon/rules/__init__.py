@@ -96,6 +96,34 @@ def feature_grep(features: tuple[str, ...], fallback_where: str, label: str) -> 
     )
 
 
+def calls_grep(packages: tuple[str, ...], label: str) -> str:
+    """Query call sites into the named packages, greps for unparsed units.
+
+    A callee in plsql_calls is an invocation in live code; the grep
+    half mirrors feature_grep and covers only units without a clean
+    parse. Both bare and schema-qualified callees match.
+    """
+    likes = " OR ".join(
+        f"callee LIKE '{package}.%' OR callee LIKE '%.{package}.%'"
+        for package in packages
+    )
+    greps = " OR ".join(f"UPPER(s.text) LIKE '%{package}.%'" for package in packages)
+    return (
+        "SELECT owner, name, type,"
+        f" '{label} (first at line ' || MIN(line) || ')' AS detail"
+        f" FROM plsql_calls WHERE {likes}"
+        " GROUP BY owner, name, type"
+        " UNION ALL"
+        " SELECT s.owner, s.name, s.type,"
+        f" '{label} (first at line ' || MIN(s.line) || ')' AS detail"
+        f" FROM source s WHERE ({greps})"
+        " AND NOT EXISTS (SELECT 1 FROM plsql_units u"
+        " WHERE u.owner = s.owner AND u.name = s.name AND u.type = s.type"
+        " AND u.error_count = 0)"
+        " GROUP BY s.owner, s.name, s.type"
+    )
+
+
 def all_rules() -> list[Rule]:
     from pgrecon.rules import (
         code,

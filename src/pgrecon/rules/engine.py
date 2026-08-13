@@ -45,6 +45,11 @@ def _shim_missing_tables(conn: sqlite3.Connection) -> None:
             "CREATE TEMP TABLE plsql_features (owner TEXT, name TEXT, type TEXT,"
             " feature TEXT, line INTEGER, detail TEXT)"
         )
+    if "plsql_calls" not in present:
+        conn.execute(
+            "CREATE TEMP TABLE plsql_calls (owner TEXT, name TEXT, type TEXT,"
+            " callee TEXT, line INTEGER)"
+        )
 
 
 def run_rules(db_path: Path, rules: list[Rule] | None = None) -> list[Finding]:

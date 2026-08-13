@@ -349,9 +349,46 @@ def test_pre_deep_parse_inventory_still_reports(
     conn, db = inventory
     conn.execute("DROP TABLE plsql_units")
     conn.execute("DROP TABLE plsql_features")
+    conn.execute("DROP TABLE plsql_calls")
     conn.execute(
         "INSERT INTO source (owner, name, type, line, text) VALUES"
         " ('HR', 'OLD_PROC', 'PROCEDURE', 2, '  v := SYSDATE;')"
     )
     conn.commit()
     assert fired(db, "R-SRC-11") == ["OLD_PROC"]
+
+
+def test_sys_package_in_comment_suppressed_by_call_graph(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'P_TIDY', 'PROCEDURE', 4, '  -- UTL_FILE.FOPEN retired')"
+    )
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'P_TIDY', 'PROCEDURE', 'sll', 0, NULL)"
+    )
+    conn.commit()
+    assert fired(db, "R-SYS-01") == []
+
+
+def test_sys_package_call_fact_fires(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'P_FILES', 'PROCEDURE', 'sll', 0, NULL)"
+    )
+    conn.execute(
+        "INSERT INTO plsql_calls (owner, name, type, callee, line) VALUES"
+        " ('HR', 'P_FILES', 'PROCEDURE', 'UTL_FILE.FOPEN', 11)"
+    )
+    conn.commit()
+    findings = [f for f in run_rules(db) if f.rule_id == "R-SYS-01"]
+    assert [f.name for f in findings] == ["P_FILES"]
+    assert "line 11" in findings[0].detail
