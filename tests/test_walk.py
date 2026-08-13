@@ -94,3 +94,43 @@ def test_unparseable_unit_yields_no_features() -> None:
     analysis = analyze_source("PACKAGE broken AS PROCEDURE ((( END")
     assert analysis.errors
     assert analysis.features == ()
+
+
+def test_call_sites_are_collected() -> None:
+    unit = (
+        "PROCEDURE p IS\n"
+        "  l_out UTL_FILE.FILE_TYPE;\n"
+        "  v NUMBER;\n"
+        "BEGIN\n"
+        "  l_out := UTL_FILE.FOPEN('DIR', 'x.log', 'w');\n"
+        "  v := pay_pkg.net_amount(pay_pkg.gross(101));\n"
+        "  DBMS_OUTPUT.NEW_LINE;\n"
+        "  log_it('done');\n"
+        "END;"
+    )
+    analysis = analyze_source(unit)
+    assert analysis.errors == ()
+    callees = {c.callee for c in analysis.calls}
+    assert {
+        "UTL_FILE.FOPEN",
+        "PAY_PKG.NET_AMOUNT",
+        "PAY_PKG.GROSS",
+        "DBMS_OUTPUT.NEW_LINE",
+        "LOG_IT",
+    } <= callees
+
+
+def test_variable_references_are_not_calls() -> None:
+    unit = (
+        "PROCEDURE p IS\n  g_total NUMBER := 0;\nBEGIN\n  g_total := g_total + 1;\nEND;"
+    )
+    analysis = analyze_source(unit)
+    assert all(c.callee != "G_TOTAL" for c in analysis.calls)
+
+
+def test_package_named_in_comment_is_not_a_call() -> None:
+    unit = (
+        "PROCEDURE p IS\nBEGIN\n  -- UTL_FILE.FOPEN would be wrong here\n  NULL;\nEND;"
+    )
+    analysis = analyze_source(unit)
+    assert analysis.calls == ()

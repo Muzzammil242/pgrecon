@@ -25,15 +25,23 @@ class Feature:
 
 
 @dataclass(frozen=True)
+class Call:
+    callee: str
+    line: int
+
+
+@dataclass(frozen=True)
 class UnitAnalysis:
     mode: str
     errors: tuple[str, ...]
     features: tuple[Feature, ...]
+    calls: tuple[Call, ...]
 
 
 class _FeatureListener(PlSqlParserListener):  # type: ignore[misc]
     def __init__(self) -> None:
         self.features: list[Feature] = []
+        self.calls: list[Call] = []
 
     def _add(self, ctx: Any, feature: str, detail: str | None = None) -> None:
         self.features.append(Feature(feature, ctx.start.line, detail))
@@ -86,6 +94,25 @@ class _FeatureListener(PlSqlParserListener):  # type: ignore[misc]
             return
         if [s.getText().upper() for s in seq.statement()] == ["NULL"]:
             self._add(ctx, "when_others_null")
+
+    def enterCall_statement(self, ctx: Any) -> None:
+        names = [r.getText().upper() for r in ctx.routine_name()]
+        self.calls.append(Call(".".join(names), ctx.start.line))
+
+    def enterGeneral_element(self, ctx: Any) -> None:
+        # Record only the outermost element of a dotted chain, and only
+        # when it carries an argument list: a call site, not a variable
+        # or record-field reference. Callees that name no known object
+        # (local variables with methods, unhandled builtins) resolve to
+        # nothing when queried, which is harmless.
+        if type(ctx.parentCtx).__name__ == "General_elementContext":
+            return
+        text = ctx.getText()
+        if "(" not in text:
+            return
+        callee = text.upper().split("(", 1)[0].rstrip(".")
+        if callee:
+            self.calls.append(Call(callee, ctx.start.line))
 
 
 _CURSOR_ATTRIBUTES = {
@@ -141,9 +168,11 @@ def analyze_source(text: str) -> UnitAnalysis:
     """
     parse = parse_source(text)
     features: list[Feature] = []
+    calls: list[Call] = []
     if parse.tree is not None and not parse.errors:
         listener = _FeatureListener()
         ParseTreeWalker.DEFAULT.walk(listener, parse.tree)
         features = listener.features + _scan_tokens(parse.tokens)
         features.sort(key=lambda f: (f.line, f.feature))
-    return UnitAnalysis(parse.mode, parse.errors, tuple(features))
+        calls = sorted(set(listener.calls), key=lambda c: (c.line, c.callee))
+    return UnitAnalysis(parse.mode, parse.errors, tuple(features), tuple(calls))
