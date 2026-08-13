@@ -45,11 +45,30 @@ Inventory
   the code page is known. Verified with Korean, Chinese, Japanese,
   Hebrew, Arabic, Cyrillic, and German object names.
 
+PL/SQL analysis
+
+- Stored units are parsed at load time with a full PL/SQL grammar
+  (grammars-v4 via ANTLR, vendored as generated code so installation
+  never needs Java). Parsing tries fast SLL prediction first, retries
+  in full LL only when that bails, and records the outcome per unit.
+- A tree walk plus a token-channel scan store migration-relevant
+  facts in the inventory: transaction control, dynamic SQL, GOTO,
+  FORALL, collection types, autonomous transactions, swallowed
+  exceptions, SYSDATE, DECODE, ROWNUM, pipelined functions, implicit
+  cursor attributes, CONNECT BY, and (+) joins.
+- Code rules read those facts first, so constructs sitting in
+  comments or string literals stop producing findings. Units that
+  fail to parse keep token-level coverage, and inventories loaded by
+  older versions still report through the same fallback.
+
 Rules
 
-- 49 deterministic rules across data types, storage, PL/SQL code, SQL
-  constructs, package structure, system package usage, and schema
-  objects. Every rule ships with fixture tests.
+- 53 deterministic rules across data types, storage, PL/SQL code, SQL
+  constructs, package structure, system package usage, schema
+  objects, and performance. Every rule ships with fixture tests.
+- The performance category starts with optimizer hints: statements
+  tuned by hand for Oracle's planner are marked for a fresh plan on
+  PostgreSQL instead of a blind rewrite.
 - Findings carry a stable rule id, severity, the object, and the
   evidence seen, including source line numbers for code findings.
 - Parse failures surface as findings (R-DDL-01, R-DDL-02) so nothing
@@ -60,6 +79,9 @@ CLI
 - pgrecon script, load, report, and info. Reports print text or JSON;
   the JSON payload includes a severity summary and a provisional
   effort-point total.
+- pgrecon -v logs progress and per-unit parse warnings to stderr;
+  stdout stays clean for report output, and logs never carry PL/SQL
+  body text.
 - A bundled example dump (examples/dump_oracle21c, extracted from a
   real Oracle XE 21c instance) makes the whole pipeline runnable
   without an Oracle installation.

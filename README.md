@@ -52,7 +52,7 @@ Output (excerpt):
     medium  R-TAB-01   STAGING_ROWS       GLOBAL TEMPORARY
     ...
 
-    41 findings (7 high, 12 medium, 11 low, 11 info); effort points 57.4
+    42 findings (7 high, 13 medium, 11 low, 11 info); effort points 59.4
 
 ## Assessing a real database
 
@@ -71,6 +71,9 @@ Output (excerpt):
        pgrecon load dump_dir --db inventory.db
        pgrecon report --db inventory.db
        pgrecon report --db inventory.db --format json > findings.json
+
+   Pass -v to watch progress on stderr; loading parses every stored
+   PL/SQL unit, which takes a few minutes on a large schema.
 
 The extracting account needs SELECT_CATALOG_ROLE (or equivalent SELECT
 grants on the dictionary views the script names).
@@ -103,17 +106,23 @@ variant for you.
 
 ## What it checks
 
-49 rules at present, each shipping with fixture tests:
+53 rules at present, each shipping with fixture tests:
 
 | Category        | Rules | Among them |
 | --------------- | ----- | ---------- |
 | Data types      | 5     | LONG, XMLTYPE, TIMESTAMP WITH LOCAL TIME ZONE, bare NUMBER |
 | Storage         | 9     | interval partitioning, global temporary tables, IOTs, bitmap and function-based indexes |
-| PL/SQL code     | 11    | autonomous transactions, dynamic SQL, GOTO, commit inside triggers, swallowed exceptions |
+| PL/SQL code     | 14    | autonomous transactions, dynamic SQL, FORALL, collection types, swallowed exceptions |
 | SQL constructs  | 6     | CONNECT BY, (+) outer joins, ROWNUM, MERGE, DECODE null handling |
 | Packages        | 2     | package-level state, initialization blocks |
 | System packages | 5     | UTL_FILE, UTL_HTTP/SMTP/TCP, DBMS_SQL, DBMS_LOB, DBMS_OUTPUT |
 | Schema objects  | 11    | database links, scheduler jobs, materialized views, queues, VPD policies, unparseable DDL |
+| Performance     | 1     | optimizer hints |
+
+Stored PL/SQL is parsed with a full grammar, and code findings come
+from the syntax tree and token stream, never from comments or string
+literals. A unit the parser rejects keeps token-level coverage and is
+itself reported.
 
 Findings carry the rule id, severity (info to blocker), the object, and
 what was seen. The JSON output adds a summary with counts by severity
@@ -125,10 +134,9 @@ headed next.
 ## Status
 
 Alpha. The extraction scripts and inventory are stable; the rule
-catalog is growing. Source-level rules currently work at token level,
-which is deliberate and conservative; a full PL/SQL parse is the next
-milestone and will sharpen the code rules. Effort points are relative
-weights for comparing findings, not hours.
+catalog is growing. Effort points are relative weights for comparing
+findings, not hours; the model that turns them into person-day ranges
+is still ahead.
 
 ## Development
 
