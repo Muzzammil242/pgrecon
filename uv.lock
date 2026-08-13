@@ -16,6 +16,15 @@ wheels = [
 ]
 
 [[package]]
+name = "antlr4-python3-runtime"
+version = "4.13.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/33/5f/2cdf6f7aca3b20d3f316e9f505292e1f256a32089bd702034c29ebde6242/antlr4_python3_runtime-4.13.2.tar.gz", hash = "sha256:909b647e1d2fc2b70180ac586df3933e38919c85f98ccc656a96cd3f25ef3916", size = 117467, upload-time = "2024-08-03T19:00:12.757Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/03/a851e84fcbb85214dc637b6378121ef9a0dd61b4c65264675d8a5c9b1ae7/antlr4_python3_runtime-4.13.2-py3-none-any.whl", hash = "sha256:fe3835eb8d33daece0e799090eda89719dbccee7aa39ef94eed3818cafa5a7e8", size = 144462, upload-time = "2024-08-03T19:00:11.134Z" },
+]
+
+[[package]]
 name = "ast-serialize"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -546,6 +555,7 @@ name = "pgrecon"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "antlr4-python3-runtime" },
     { name = "pglast" },
     { name = "sqlglot" },
     { name = "typer" },
@@ -562,6 +572,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "antlr4-python3-runtime", specifier = ">=4.13.2,<4.14" },
     { name = "pglast", specifier = ">=7.0" },
     { name = "sqlglot", specifier = ">=25.0" },
     { name = "typer", specifier = ">=0.12" },

@@ -12,7 +12,7 @@ import tokenize
 from pathlib import Path
 
 CHECKED_SUFFIXES = {".py", ".sql", ".md", ".toml", ".yml", ".yaml", ".cfg"}
-EXEMPT_PARTS = {"fixtures", "dump", ".venv", ".git", "__pycache__"}
+EXEMPT_PARTS = {"fixtures", "dump", "_generated", ".venv", ".git", "__pycache__"}
 
 STRING_TOKENS = {tokenize.STRING} | {
     getattr(tokenize, name)

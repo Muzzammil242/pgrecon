@@ -5,10 +5,11 @@ repos:
     rev: v5.0.0
     hooks:
       - id: check-added-large-files
+        exclude: ^src/pgrecon/plsql/_generated/
       - id: end-of-file-fixer
-        exclude: ^(tests/fixtures/|examples/dump_)
+        exclude: ^(tests/fixtures/|examples/dump_|src/pgrecon/plsql/_generated/)
       - id: trailing-whitespace
-        exclude: ^(tests/fixtures/|examples/dump_)
+        exclude: ^(tests/fixtures/|examples/dump_|src/pgrecon/plsql/_generated/)
       - id: check-merge-conflict
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
