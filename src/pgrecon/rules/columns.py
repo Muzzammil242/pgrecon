@@ -96,4 +96,38 @@ RULES = [
             " WHERE data_type = 'NUMBER' AND data_precision IS NULL"
         ),
     ),
+    Rule(
+        id="R-TYPE-06",
+        title="ROWID or UROWID column",
+        category="data types",
+        severity=Severity.MEDIUM,
+        effort=2.0,
+        remedy=(
+            "A stored ROWID is a physical row address, and PostgreSQL has"
+            " no stable one: ctid changes on update and vacuum. Replace"
+            " the column with a real key reference; whatever wrote and"
+            " followed these addresses changes with it."
+        ),
+        detector=sql_detector(
+            "SELECT owner, table_name || '.' || column_name, 'COLUMN',"
+            " data_type FROM columns WHERE data_type IN ('ROWID', 'UROWID')"
+        ),
+    ),
+    Rule(
+        id="R-TYPE-07",
+        title="BFILE column",
+        category="data types",
+        severity=Severity.HIGH,
+        effort=3.0,
+        remedy=(
+            "BFILE points at a file outside the database and PostgreSQL"
+            " has no counterpart. Store a path or object key plus the"
+            " file in application storage, and move the DIRECTORY grants"
+            " and BFILENAME plumbing into the application."
+        ),
+        detector=sql_detector(
+            "SELECT owner, table_name || '.' || column_name, 'COLUMN',"
+            " data_type FROM columns WHERE data_type = 'BFILE'"
+        ),
+    ),
 ]

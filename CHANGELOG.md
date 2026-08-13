@@ -66,9 +66,12 @@ PL/SQL analysis
 
 Rules
 
-- 54 deterministic rules across data types, storage, PL/SQL code, SQL
+- 57 deterministic rules across data types, storage, PL/SQL code, SQL
   constructs, package structure, system package usage, schema
   objects, and performance. Every rule ships with fixture tests.
+- ROWID, UROWID, and BFILE columns get type rules, and ROWID usage in
+  code is read from the token stream: ctid is not a stable row
+  address, and BFILE has no counterpart at all.
 - The empty-string trap gets its own rule: Oracle treats '' as NULL
   and PostgreSQL does not, so every empty-string literal is a site
   where behavior changes silently. The lexer tells a real '' from the

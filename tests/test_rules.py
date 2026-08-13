@@ -411,3 +411,42 @@ def test_empty_string_fact_fires(
     findings = [f for f in run_rules(db) if f.rule_id == "R-SRC-18"]
     assert [f.name for f in findings] == ["P_BLANKS"]
     assert "line 6" in findings[0].detail
+
+
+def test_rowid_and_bfile_columns_fire(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    for column, data_type in [
+        ("REF_ADDR", "ROWID"),
+        ("U_ADDR", "UROWID"),
+        ("SCAN_DOC", "BFILE"),
+        ("NAME", "VARCHAR2"),
+    ]:
+        conn.execute(
+            "INSERT INTO columns (owner, table_name, column_name, data_type)"
+            " VALUES ('HR', 'LEGACY_REFS', ?, ?)",
+            (column, data_type),
+        )
+    conn.commit()
+    assert fired(db, "R-TYPE-06") == ["LEGACY_REFS.REF_ADDR", "LEGACY_REFS.U_ADDR"]
+    assert fired(db, "R-TYPE-07") == ["LEGACY_REFS.SCAN_DOC"]
+
+
+def test_rowid_code_fact_fires(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'P_BYRID', 'PROCEDURE', 'sll', 0, NULL)"
+    )
+    conn.execute(
+        "INSERT INTO plsql_features (owner, name, type, feature, line, detail)"
+        " VALUES ('HR', 'P_BYRID', 'PROCEDURE', 'rowid', 14, NULL)"
+    )
+    conn.commit()
+    findings = [f for f in run_rules(db) if f.rule_id == "R-SRC-19"]
+    assert [f.name for f in findings] == ["P_BYRID"]
+    assert "line 14" in findings[0].detail

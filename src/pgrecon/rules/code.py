@@ -240,6 +240,22 @@ RULES = [
         ),
     ),
     Rule(
+        id="R-SRC-19",
+        title="ROWID in code",
+        category="plsql",
+        severity=Severity.MEDIUM,
+        effort=1.5,
+        remedy=(
+            "ctid is not a ROWID: it moves on update and vacuum and must"
+            " not be stored or compared. Fetch-by-rowid loops rewrite to"
+            " primary-key access or WHERE CURRENT OF; ROWID-typed"
+            " variables and parameters change type with them."
+        ),
+        detector=sql_detector(
+            feature_grep(("rowid",), "UPPER(s.text) LIKE '%ROWID%'", "ROWID")
+        ),
+    ),
+    Rule(
         id="R-SRC-18",
         title="Empty string treated as NULL",
         category="plsql",

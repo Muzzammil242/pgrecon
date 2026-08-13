@@ -109,13 +109,13 @@ variant for you.
 
 ## What it checks
 
-54 rules at present, each shipping with fixture tests:
+57 rules at present, each shipping with fixture tests:
 
 | Category        | Rules | Among them |
 | --------------- | ----- | ---------- |
-| Data types      | 5     | LONG, XMLTYPE, TIMESTAMP WITH LOCAL TIME ZONE, bare NUMBER |
+| Data types      | 7     | LONG, XMLTYPE, ROWID and BFILE, TIMESTAMP WITH LOCAL TIME ZONE |
 | Storage         | 9     | interval partitioning, global temporary tables, IOTs, bitmap and function-based indexes |
-| PL/SQL code     | 15    | autonomous transactions, dynamic SQL, FORALL, collection types, the empty-string NULL trap |
+| PL/SQL code     | 16    | autonomous transactions, dynamic SQL, FORALL, collection types, the empty-string NULL trap |
 | SQL constructs  | 6     | CONNECT BY, (+) outer joins, ROWNUM, MERGE, DECODE null handling |
 | Packages        | 2     | package-level state, initialization blocks |
 | System packages | 5     | UTL_FILE, UTL_HTTP/SMTP/TCP, DBMS_SQL, DBMS_LOB, DBMS_OUTPUT |

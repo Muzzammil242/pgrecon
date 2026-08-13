@@ -159,3 +159,18 @@ def test_escaped_quote_inside_string_is_not_empty() -> None:
     unit = "PROCEDURE p IS\n  v VARCHAR2(10) := 'don''t';\nBEGIN\n  NULL;\nEND;"
     analysis = analyze_source(unit)
     assert all(f.feature != "empty_string_literal" for f in analysis.features)
+
+
+def test_rowid_usage_is_flagged() -> None:
+    unit = (
+        "PROCEDURE p IS\n"
+        "  l_rid ROWID;\n"
+        "BEGIN\n"
+        "  SELECT rowid INTO l_rid FROM emp WHERE id = 1;\n"
+        "  DELETE FROM emp WHERE rowid = l_rid;\n"
+        "END;"
+    )
+    analysis = analyze_source(unit)
+    assert analysis.errors == ()
+    lines = [f.line for f in analysis.features if f.feature == "rowid"]
+    assert lines == [2, 4, 5]

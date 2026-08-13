@@ -126,6 +126,8 @@ _PLAIN_TOKENS = {
     PlSqlLexer.SYSDATE: "sysdate",
     PlSqlLexer.ROWNUM: "rownum",
     PlSqlLexer.PIPELINED: "pipelined",
+    PlSqlLexer.ROWID: "rowid",
+    PlSqlLexer.UROWID: "rowid",
 }
 
 
