@@ -70,12 +70,39 @@ def source_grep(pattern: str, label: str) -> str:
     )
 
 
+def feature_grep(features: tuple[str, ...], fallback_where: str, label: str) -> str:
+    """Query deep parse facts, with a token grep for unparsed units.
+
+    plsql_features covers every unit the deep parse accepted, so a
+    match there is a construct in live code, never in a comment or a
+    string literal. The grep half keeps coverage for units that failed
+    to parse and for inventories loaded before the deep parse existed;
+    fallback_where is a condition over the source table aliased as s.
+    """
+    quoted = ", ".join(f"'{feature}'" for feature in features)
+    return (
+        "SELECT owner, name, type,"
+        f" '{label} (first at line ' || MIN(line) || ')' AS detail"
+        f" FROM plsql_features WHERE feature IN ({quoted})"
+        " GROUP BY owner, name, type"
+        " UNION ALL"
+        " SELECT s.owner, s.name, s.type,"
+        f" '{label} (first at line ' || MIN(s.line) || ')' AS detail"
+        f" FROM source s WHERE ({fallback_where})"
+        " AND NOT EXISTS (SELECT 1 FROM plsql_units u"
+        " WHERE u.owner = s.owner AND u.name = s.name AND u.type = s.type"
+        " AND u.error_count = 0)"
+        " GROUP BY s.owner, s.name, s.type"
+    )
+
+
 def all_rules() -> list[Rule]:
     from pgrecon.rules import (
         code,
         columns,
         objects,
         packages,
+        performance,
         sqlconstructs,
         storage,
         syspackages,
@@ -89,6 +116,7 @@ def all_rules() -> list[Rule]:
         *packages.RULES,
         *syspackages.RULES,
         *objects.RULES,
+        *performance.RULES,
     ]
     ids = [rule.id for rule in rules]
     if len(ids) != len(set(ids)):

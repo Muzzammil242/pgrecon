@@ -1,6 +1,11 @@
-"""Rules over Oracle SQL constructs found in code and view definitions."""
+"""Rules over Oracle SQL constructs found in code and view definitions.
 
-from pgrecon.rules import Rule, Severity, source_grep, sql_detector
+Constructs in stored code come from the deep-parse facts with a grep
+fallback; view bodies are text in the ddl table and stay grep-based
+until views get their own parse.
+"""
+
+from pgrecon.rules import Rule, Severity, feature_grep, source_grep, sql_detector
 
 RULES = [
     Rule(
@@ -16,7 +21,9 @@ RULES = [
         ),
         detector=sql_detector(
             "SELECT owner, name, type, detail FROM ("
-            + source_grep("CONNECT BY", "CONNECT BY")
+            + feature_grep(
+                ("connect_by",), "UPPER(s.text) LIKE '%CONNECT BY%'", "CONNECT BY"
+            )
             + " UNION ALL"
             " SELECT owner, name, 'VIEW DDL',"
             " 'CONNECT BY in view definition' AS detail FROM ddl"
@@ -36,7 +43,9 @@ RULES = [
         ),
         detector=sql_detector(
             "SELECT owner, name, type, detail FROM ("
-            + source_grep("(+)", "(+) outer join")
+            + feature_grep(
+                ("outer_join_plus",), "s.text LIKE '%(+)%'", "(+) outer join"
+            )
             + " UNION ALL"
             " SELECT owner, name, 'VIEW DDL',"
             " 'uses (+) outer join' AS detail FROM ddl"
@@ -57,7 +66,7 @@ RULES = [
         ),
         detector=sql_detector(
             "SELECT owner, name, type, detail FROM ("
-            + source_grep("ROWNUM", "ROWNUM")
+            + feature_grep(("rownum",), "UPPER(s.text) LIKE '%ROWNUM%'", "ROWNUM")
             + " UNION ALL"
             " SELECT owner, name, 'VIEW DDL', 'ROWNUM in view definition'"
             " AS detail FROM ddl"
@@ -89,7 +98,9 @@ RULES = [
             " CASE does not, so any DECODE branching on NULL changes"
             " behavior silently."
         ),
-        detector=sql_detector(source_grep("DECODE(", "DECODE")),
+        detector=sql_detector(
+            feature_grep(("decode_call",), "UPPER(s.text) LIKE '%DECODE(%'", "DECODE")
+        ),
     ),
     Rule(
         id="R-SRC-11",
@@ -103,6 +114,8 @@ RULES = [
             " clock_timestamp() where the difference matters, for example"
             " inside long transactions and loops."
         ),
-        detector=sql_detector(source_grep("SYSDATE", "SYSDATE")),
+        detector=sql_detector(
+            feature_grep(("sysdate",), "UPPER(s.text) LIKE '%SYSDATE%'", "SYSDATE")
+        ),
     ),
 ]

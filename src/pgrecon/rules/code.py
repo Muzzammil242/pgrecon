@@ -1,11 +1,11 @@
 """Rules over PL/SQL source and trigger structure.
 
-Source detectors are token level: honest for an assessment and exactly
-what the spec allows until the ANTLR deep-parse pass lands. Matching is
-done per line against all_source text, deduplicated per object.
+Source detectors read the deep-parse facts first and fall back to
+token-level greps for units the parser rejected, so precision comes
+from the tree and coverage never drops below what greps gave.
 """
 
-from pgrecon.rules import Rule, Severity, source_grep, sql_detector
+from pgrecon.rules import Rule, Severity, feature_grep, source_grep, sql_detector
 
 RULES = [
     Rule(
@@ -37,7 +37,11 @@ RULES = [
             " pg_background."
         ),
         detector=sql_detector(
-            source_grep("AUTONOMOUS_TRANSACTION", "PRAGMA AUTONOMOUS_TRANSACTION")
+            feature_grep(
+                ("autonomous_transaction",),
+                "UPPER(s.text) LIKE '%AUTONOMOUS_TRANSACTION%'",
+                "PRAGMA AUTONOMOUS_TRANSACTION",
+            )
         ),
     ),
     Rule(
@@ -70,7 +74,13 @@ RULES = [
             " and error handling differ. Each dynamic statement needs a"
             " manual port and a test."
         ),
-        detector=sql_detector(source_grep("EXECUTE IMMEDIATE", "EXECUTE IMMEDIATE")),
+        detector=sql_detector(
+            feature_grep(
+                ("execute_immediate",),
+                "UPPER(s.text) LIKE '%EXECUTE IMMEDIATE%'",
+                "EXECUTE IMMEDIATE",
+            )
+        ),
     ),
     Rule(
         id="R-SRC-02",
@@ -82,7 +92,9 @@ RULES = [
             "PL/pgSQL has no GOTO. The control flow must be restructured"
             " with loops, exceptions, or early returns."
         ),
-        detector=sql_detector(source_grep("GOTO ", "GOTO")),
+        detector=sql_detector(
+            feature_grep(("goto",), "UPPER(s.text) LIKE '%GOTO %'", "GOTO")
+        ),
     ),
     Rule(
         id="R-SRC-03",
@@ -94,7 +106,13 @@ RULES = [
             "PL/pgSQL has no BULK COLLECT; array_agg into an array or a"
             " plain set-based statement usually replaces the whole loop."
         ),
-        detector=sql_detector(source_grep("BULK COLLECT", "BULK COLLECT")),
+        detector=sql_detector(
+            feature_grep(
+                ("bulk_collect",),
+                "UPPER(s.text) LIKE '%BULK COLLECT%'",
+                "BULK COLLECT",
+            )
+        ),
     ),
     Rule(
         id="R-SRC-06",
@@ -122,12 +140,11 @@ RULES = [
             " the test phase can actually see errors."
         ),
         detector=sql_detector(
-            "SELECT owner, name, type,"
-            " 'WHEN OTHERS THEN NULL (first at line ' || MIN(line) || ')'"
-            " AS detail FROM source"
-            " WHERE REPLACE(UPPER(text), ' ', '')"
-            " LIKE '%WHENOTHERSTHENNULL%'"
-            " GROUP BY owner, name, type"
+            feature_grep(
+                ("when_others_null",),
+                "REPLACE(UPPER(s.text), ' ', '') LIKE '%WHENOTHERSTHENNULL%'",
+                "WHEN OTHERS THEN NULL",
+            )
         ),
     ),
     Rule(
@@ -142,11 +159,11 @@ RULES = [
             " implicit cursors."
         ),
         detector=sql_detector(
-            "SELECT owner, name, type,"
-            " 'SQL% attribute (first at line ' || MIN(line) || ')'"
-            " AS detail FROM source"
-            " WHERE UPPER(text) LIKE '%SQL\\%%' ESCAPE '\\'"
-            " GROUP BY owner, name, type"
+            feature_grep(
+                ("sql_cursor_attribute",),
+                "UPPER(s.text) LIKE '%SQL\\%%' ESCAPE '\\'",
+                "SQL% attribute",
+            )
         ),
     ),
     Rule(
@@ -177,12 +194,69 @@ RULES = [
             " or hand that control back to the caller."
         ),
         detector=sql_detector(
-            "SELECT owner, name, type,"
-            " 'COMMIT or ROLLBACK (first at line ' || MIN(line) || ')'"
-            " AS detail FROM source"
-            " WHERE UPPER(text) LIKE '%COMMIT;%'"
-            " OR UPPER(text) LIKE '%ROLLBACK;%'"
-            " GROUP BY owner, name, type"
+            feature_grep(
+                ("commit", "rollback"),
+                "UPPER(s.text) LIKE '%COMMIT;%' OR UPPER(s.text) LIKE '%ROLLBACK;%'",
+                "COMMIT or ROLLBACK",
+            )
+        ),
+    ),
+    Rule(
+        id="R-SRC-15",
+        title="FORALL bulk binding",
+        category="plsql",
+        severity=Severity.MEDIUM,
+        effort=1.5,
+        remedy=(
+            "PL/pgSQL has no FORALL. The loop usually collapses into one"
+            " set-based statement over unnest() of the collection, which"
+            " is also the faster shape; SAVE EXCEPTIONS handling needs a"
+            " separate error-logging design."
+        ),
+        detector=sql_detector(
+            feature_grep(("forall",), "UPPER(s.text) LIKE '%FORALL %'", "FORALL")
+        ),
+    ),
+    Rule(
+        id="R-SRC-16",
+        title="PL/SQL collection type",
+        category="plsql",
+        severity=Severity.MEDIUM,
+        effort=2.0,
+        remedy=(
+            "Nested tables, varrays, and associative arrays map to"
+            " PostgreSQL arrays, jsonb, or temporary tables depending on"
+            " use; collection methods such as EXTEND, COUNT, and FIRST"
+            " have no direct equivalents and every reader changes."
+        ),
+        detector=sql_detector(
+            feature_grep(
+                ("collection_type",),
+                "UPPER(s.text) LIKE '%TABLE OF %'"
+                " OR UPPER(s.text) LIKE '%VARRAY(%'"
+                " OR UPPER(s.text) LIKE '%VARRAY (%'",
+                "collection type declaration",
+            )
+        ),
+    ),
+    Rule(
+        id="R-SRC-17",
+        title="Pipelined table function",
+        category="plsql",
+        severity=Severity.MEDIUM,
+        effort=1.5,
+        remedy=(
+            "Becomes a set-returning function with RETURN NEXT or RETURN"
+            " QUERY. PostgreSQL materializes the result set before the"
+            " caller sees rows, so pipelines relied on for streaming or"
+            " early-abort behavior need a design check, not just a port."
+        ),
+        detector=sql_detector(
+            feature_grep(
+                ("pipelined",),
+                "UPPER(s.text) LIKE '%PIPELINED%'",
+                "PIPELINED function",
+            )
         ),
     ),
 ]

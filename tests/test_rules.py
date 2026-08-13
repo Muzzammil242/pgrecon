@@ -262,3 +262,96 @@ def test_findings_on_fixture_dump(tmp_path: Path, dump_basic: Path) -> None:
     # No compound trigger and no LONG column in the fixture.
     assert "R-TRG-01" not in ids
     assert "R-TYPE-01" not in ids
+
+
+def test_deep_facts_suppress_comment_matches(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    # The unit parsed clean and produced no sysdate fact, so the
+    # SYSDATE sitting in a comment must not become a finding.
+    conn, db = inventory
+    for line, text in enumerate(
+        ["PROCEDURE p IS", "  -- runs at SYSDATE", "BEGIN", "  NULL;", "END;"],
+        start=1,
+    ):
+        conn.execute(
+            "INSERT INTO source (owner, name, type, line, text)"
+            " VALUES ('HR', 'P_CLEAN', 'PROCEDURE', ?, ?)",
+            (line, text),
+        )
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'P_CLEAN', 'PROCEDURE', 'sll', 0, NULL)"
+    )
+    conn.commit()
+    assert fired(db, "R-SRC-11") == []
+
+
+def test_grep_fallback_covers_unparsed_units(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    # One unit failed the deep parse, one predates it entirely; both
+    # keep token-level coverage.
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'P_BROKEN', 'PROCEDURE', 3, '  v := SYSDATE;')"
+    )
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'P_BROKEN', 'PROCEDURE', 'll', 2, 'line 1:0 boom')"
+    )
+    conn.execute(
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'P_LEGACY', 'PROCEDURE', 7, '  v := SYSDATE;')"
+    )
+    conn.commit()
+    assert fired(db, "R-SRC-11") == ["P_BROKEN", "P_LEGACY"]
+
+
+def test_deep_fact_becomes_finding(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'PKG_JOBS', 'PACKAGE BODY', 'sll', 0, NULL)"
+    )
+    conn.execute(
+        "INSERT INTO plsql_features (owner, name, type, feature, line, detail)"
+        " VALUES ('HR', 'PKG_JOBS', 'PACKAGE BODY', 'forall', 41, NULL)"
+    )
+    conn.commit()
+    findings = [f for f in run_rules(db) if f.rule_id == "R-SRC-15"]
+    assert [f.name for f in findings] == ["PKG_JOBS"]
+    assert "line 41" in findings[0].detail
+
+
+def test_optimizer_hint_fires(inventory: tuple[sqlite3.Connection, Path]) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'P_TUNED', 'PROCEDURE', 12,"
+        " '  SELECT /*+ INDEX(e emp_ix) */ id INTO v FROM emp e;')"
+    )
+    conn.commit()
+    assert fired(db, "R-PERF-01") == ["P_TUNED"]
+
+
+def test_pre_deep_parse_inventory_still_reports(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    # An inventory loaded before the deep parse existed has no fact
+    # tables at all; the engine shims them and the greps carry on.
+    conn, db = inventory
+    conn.execute("DROP TABLE plsql_units")
+    conn.execute("DROP TABLE plsql_features")
+    conn.execute(
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'OLD_PROC', 'PROCEDURE', 2, '  v := SYSDATE;')"
+    )
+    conn.commit()
+    assert fired(db, "R-SRC-11") == ["OLD_PROC"]
