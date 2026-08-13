@@ -22,7 +22,6 @@ classifiers = [
 dependencies = [
     "typer>=0.12",
     "sqlglot>=25.0",
-    "pglast>=7.0",
     "antlr4-python3-runtime>=4.13.2,<4.14",
 ]
 
@@ -66,7 +65,7 @@ python_version = "3.11"
 exclude = ["src/pgrecon/plsql/_generated/"]
 
 [[tool.mypy.overrides]]
-module = ["pglast.*", "sqlglot.*", "antlr4.*"]
+module = ["sqlglot.*", "antlr4.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
