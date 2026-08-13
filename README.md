@@ -189,6 +189,18 @@ narrative reports with per-finding remedies, effort estimation, and
 hands-on Oracle to PostgreSQL migration work. The core stays open
 under Apache-2.0.
 
+## Acknowledgements
+
+pgrecon stands on excellent open source: the PL/SQL grammar from
+[grammars-v4](https://github.com/antlr/grammars-v4) by Alexandre
+Porcelli, Ivan Kochurkin, and Mark Adams, turned into a parser by
+[ANTLR](https://www.antlr.org); Oracle-dialect SQL parsing by
+[sqlglot](https://github.com/tobymao/sqlglot); the CLI by
+[Typer](https://typer.tiangolo.com); and test infrastructure on
+Gerald Venzl's
+[Oracle XE container images](https://github.com/gvenzl/oci-oracle-xe).
+Attributions are in [NOTICE](NOTICE).
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).

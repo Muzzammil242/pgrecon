@@ -1,0 +1,16 @@
+pgrecon
+Copyright 2026 Muzzammil Sarwar
+
+This product includes a PL/SQL parser generated with ANTLR
+(https://www.antlr.org) from the grammars-v4 PL/SQL grammar
+(https://github.com/antlr/grammars-v4), licensed under the Apache
+License 2.0:
+
+  Copyright (c) 2009-2011 Alexandre Porcelli
+  Copyright (c) 2015-2019 Ivan Kochurkin (Positive Technologies)
+  Copyright (c) 2017-2018 Mark Adams
+
+The generated files and their base classes live in
+src/pgrecon/plsql/_generated/, with provenance, the generator
+version, and local modifications documented in that directory's
+README.

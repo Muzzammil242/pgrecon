@@ -2,6 +2,18 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## 0.1.1 - 2026-08-14
+
+Packaging and attribution; no behavior changes.
+
+- The unused PostgreSQL-syntax validation helper and its pglast
+  dependency are removed from the core. pglast is GPL-3.0 licensed,
+  which does not belong in the requirements of an Apache-2.0
+  package; server-grade validation returns with the report layer,
+  where it can live under its own terms.
+- A NOTICE file attributes the vendored grammars-v4 PL/SQL parser,
+  and the README acknowledges the projects pgrecon builds on.
+
 ## 0.1.0 - 2026-08-14
 
 First public release: offline extraction, a queryable inventory, and a
