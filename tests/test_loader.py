@@ -236,3 +236,35 @@ def test_deep_parse_records_units(loaded: tuple[dict[str, int], Path]) -> None:
     # stores source lines without trailing newlines; the loader joins
     # them back into a real unit before parsing.
     assert rows == {"PACKAGE": 0, "PACKAGE BODY": 0}
+
+
+@pytest.mark.parametrize(
+    "ddl",
+    [
+        'CREATE TABLE "S"."SHIFTS" ("SPAN" INTERVAL DAY (2) TO SECOND (6))',
+        'CREATE TABLE "S"."TERMS" ("AGE" INTERVAL YEAR (2) TO MONTH)',
+        'CREATE TABLE "S"."BLOBS" ("PAYLOAD" LONG RAW)',
+        'CREATE TABLE "S"."T" (X NUMBER,'
+        ' CONSTRAINT "C" CHECK (X > 0) DEFERRABLE ENABLE)',
+        'CREATE TABLE "S"."T" (X NUMBER,'
+        " PRIMARY KEY (X) DEFERRABLE INITIALLY DEFERRED ENABLE)",
+        'CREATE TABLE "S"."V" (P NUMBER, Q NUMBER'
+        ' GENERATED ALWAYS AS (ROUND("P"*1.2,2)) VIRTUAL VISIBLE)',
+        'CREATE TABLE "S"."R" (D DATE) PARTITION BY RANGE ("D")'
+        " (PARTITION \"P1\" VALUES LESS THAN (TO_DATE(' 2021-01-01'"
+        ", 'SYYYY-MM-DD')), PARTITION \"P2\" VALUES LESS THAN (MAXVALUE))",
+        'CREATE TABLE "S"."L" (ST VARCHAR2(2)) PARTITION BY LIST ("ST")'
+        " (PARTITION \"EAST\" VALUES ('NY', 'MA'),"
+        " PARTITION \"WEST\" VALUES ('CA'))",
+        'CREATE TABLE "S"."H" (ID NUMBER) PARTITION BY HASH ("ID")'
+        ' (PARTITION "P1", PARTITION "P2")',
+    ],
+)
+def test_field_ddl_shapes_parse(ddl: str) -> None:
+    # Shapes DBMS_METADATA emits in the field: spelled-out partition
+    # specification lists, deferrable constraint states, spaced
+    # INTERVAL precision, LONG RAW, and virtual column visibility.
+    from pgrecon.inventory.loader import _oracle_parse
+
+    error, quality = _oracle_parse(ddl)
+    assert error is None, error

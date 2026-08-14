@@ -268,7 +268,34 @@ PARSE_NORMALIZATIONS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "",
     ),
-    (re.compile(r"\s+VIRTUAL\b", re.IGNORECASE), ""),
+    (re.compile(r"\s+VIRTUAL\b(\s+(?:VISIBLE|INVISIBLE)\b)?", re.IGNORECASE), ""),
+    # Constraint deferrability is a state sqlglot's Oracle grammar
+    # rejects in DBMS_METADATA's spelling; PostgreSQL supports the
+    # feature, so it is parse noise, not a finding.
+    (
+        re.compile(
+            r"\s+(?:NOT\s+)?DEFERRABLE(?:\s+INITIALLY\s+(?:IMMEDIATE|DEFERRED))?\b",
+            re.IGNORECASE,
+        ),
+        "",
+    ),
+    # INTERVAL column types and LONG RAW are real types sqlglot cannot
+    # parse at all; the parse copy substitutes a parseable stand-in.
+    # Column facts always come from the catalog, never from DDL.
+    (
+        re.compile(
+            r"\bINTERVAL\s+DAY\s*(?:\(\d+\))?\s+TO\s+SECOND\s*(?:\(\d+\))?"
+            r"|\bINTERVAL\s+YEAR\s*(?:\(\d+\))?\s+TO\s+MONTH\b",
+            re.IGNORECASE,
+        ),
+        "VARCHAR2(30)",
+    ),
+    (re.compile(r"\bLONG\s+RAW\b", re.IGNORECASE), "BLOB"),
+    # DBMS_METADATA spells out every partition of an explicitly
+    # partitioned table; sqlglot accepts PARTITION BY but not the
+    # specification list, so the parse copy stops before it. The
+    # partitioning facts live in part_tables.
+    (re.compile(r"\(\s*PARTITION\b[\s\S]*$", re.IGNORECASE), ""),
 )
 
 
