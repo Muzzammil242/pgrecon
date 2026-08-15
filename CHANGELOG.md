@@ -2,7 +2,7 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## Unreleased
+## 0.1.3 - 2026-08-15
 
 - Wrapped PL/SQL gets its own rule (R-SRC-20): a wrapped unit is
   obfuscated bytecode with nothing to assess from the database, so it
