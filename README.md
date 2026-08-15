@@ -187,7 +187,8 @@ The maintainer offers commercial migration assessment and delivery
 through [DevCrafter](https://devcrafterai.com), built on this core:
 narrative reports with per-finding remedies, effort estimation, and
 hands-on Oracle to PostgreSQL migration work. The core stays open
-under Apache-2.0.
+under Apache-2.0. See [SUPPORT.md](SUPPORT.md) for the full support
+and partner directory.
 
 ## Acknowledgements
 
