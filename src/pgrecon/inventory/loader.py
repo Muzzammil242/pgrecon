@@ -453,7 +453,19 @@ def _analyze_plsql(conn: sqlite3.Connection) -> tuple[int, int, int]:
     feature_count = 0
     call_count = 0
     for i, ((owner, name, otype), lines) in enumerate(groups.items(), start=1):
-        analysis = analyze_source("".join(lines))
+        if name.lower().endswith("$xd"):
+            # XDB writes helper triggers named <table>$xd for XML
+            # schema storage. They are Oracle's machinery, not user
+            # code to port, and their generated syntax defeats the
+            # grammar; record them as generated and move on.
+            conn.execute(
+                "INSERT OR REPLACE INTO plsql_units"
+                " (owner, name, type, parse_mode, error_count, first_error)"
+                " VALUES (?, ?, ?, 'generated', 0, NULL)",
+                (owner, name, otype),
+            )
+            continue
+        analysis = analyze_source("".join(lines), otype)
         if analysis.errors:
             logger.warning(
                 "%s.%s (%s): %d syntax errors, token-level coverage only",

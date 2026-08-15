@@ -7,6 +7,7 @@ Comments and string literals reach neither, which is the point of the
 exercise: a SYSDATE in a comment is not a finding.
 """
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -181,20 +182,40 @@ def _scan_tokens(stream: Any) -> list[Feature]:
     return features
 
 
-def analyze_source(text: str) -> UnitAnalysis:
+_ALTER_TYPE = re.compile(r"^\s*ALTER\s+TYPE\b", re.IGNORECASE | re.MULTILINE)
+
+
+def analyze_source(text: str, unit_type: str | None = None) -> UnitAnalysis:
     """Parse one stored unit and extract its migration-relevant facts.
 
     A unit that fails to parse yields no features at all rather than
     features from a half-built tree; the rule engine falls back to
     token greps for those units.
+
+    An evolved object type is the one known case where DBA_SOURCE
+    holds more than one statement: the original CREATE followed by
+    the ALTER TYPE statements that changed it. When a TYPE fails to
+    parse whole, the text is split at the first ALTER TYPE line and
+    the original definition parsed alone; the evolution itself is
+    recorded as a feature, because it is a migration fact.
     """
     parse = parse_source(text)
+    evolution_line: int | None = None
+    if parse.errors and unit_type == "TYPE":
+        match = _ALTER_TYPE.search(text)
+        if match:
+            retry = parse_source(text[: match.start()])
+            if not retry.errors:
+                parse = retry
+                evolution_line = text.count("\n", 0, match.start()) + 1
     features: list[Feature] = []
     calls: list[Call] = []
     if parse.tree is not None and not parse.errors:
         listener = _FeatureListener()
         ParseTreeWalker.DEFAULT.walk(listener, parse.tree)
         features = listener.features + _scan_tokens(parse.tokens)
+        if evolution_line is not None:
+            features.append(Feature("type_evolution", evolution_line, None))
         features.sort(key=lambda f: (f.line, f.feature))
         calls = sorted(set(listener.calls), key=lambda c: (c.line, c.callee))
     return UnitAnalysis(parse.mode, parse.errors, tuple(features), tuple(calls))

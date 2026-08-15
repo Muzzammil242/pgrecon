@@ -268,3 +268,24 @@ def test_field_ddl_shapes_parse(ddl: str) -> None:
 
     error, quality = _oracle_parse(ddl)
     assert error is None, error
+
+
+def test_generated_xdb_trigger_is_skipped(tmp_path: Path) -> None:
+    dump = tmp_path / "dump"
+    dump.mkdir()
+    header = '"OWNER","NAME","TYPE","LINE","TEXT"'
+    rows = [
+        '"OE","PURCHASEORDER$xd","TRIGGER",1,"trigger PURCHASEORDER$xd"',
+        '"OE","PURCHASEORDER$xd","TRIGGER",2,"  call xdb.machinery(:new.x)"',
+    ]
+    (dump / "source.csv").write_text(
+        "\n" + header + "\n" + "\n".join(rows) + "\n", encoding="utf-8"
+    )
+    db = tmp_path / "inv.db"
+    load_dump(dump, db)
+    conn = sqlite3.connect(db)
+    row = conn.execute(
+        "SELECT parse_mode, error_count FROM plsql_units"
+        " WHERE name = 'PURCHASEORDER$xd'"
+    ).fetchone()
+    assert row == ("generated", 0)

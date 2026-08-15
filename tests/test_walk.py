@@ -201,3 +201,27 @@ def test_ref_cursor_declarations_are_flagged() -> None:
     analysis = analyze_source(unit)
     assert analysis.errors == ()
     assert [f.line for f in analysis.features if f.feature == "ref_cursor"] == [3, 4]
+
+
+def test_evolved_type_parses_past_its_alter_tail() -> None:
+    # DBA_SOURCE for an evolved type carries the CREATE followed by
+    # the ALTER TYPE statements that changed it, in one listing.
+    unit = (
+        "TYPE category_t AS OBJECT\n"
+        "  (category_id NUMBER(2),\n"
+        "   category_name VARCHAR2(50))\n"
+        "  NOT INSTANTIABLE NOT FINAL\n"
+        "ALTER TYPE category_t\n"
+        " ADD ATTRIBUTE (parent_id NUMBER(2)) CASCADE\n"
+    )
+    analysis = analyze_source(unit, "TYPE")
+    assert analysis.errors == ()
+    evolution = [f for f in analysis.features if f.feature == "type_evolution"]
+    assert [f.line for f in evolution] == [5]
+
+
+def test_unevolved_type_gains_no_evolution_feature() -> None:
+    unit = "TYPE money_t AS OBJECT (amount NUMBER, currency VARCHAR2(3))"
+    analysis = analyze_source(unit, "TYPE")
+    assert analysis.errors == ()
+    assert all(f.feature != "type_evolution" for f in analysis.features)
