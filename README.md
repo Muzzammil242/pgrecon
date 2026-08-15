@@ -111,13 +111,13 @@ variant for you.
 
 ## What it checks
 
-62 rules at present, each shipping with fixture tests:
+63 rules at present, each shipping with fixture tests:
 
 | Category        | Rules | Among them |
 | --------------- | ----- | ---------- |
 | Data types      | 7     | LONG, XMLTYPE, ROWID and BFILE, TIMESTAMP WITH LOCAL TIME ZONE |
 | Storage         | 9     | interval partitioning, global temporary tables, IOTs, bitmap and function-based indexes |
-| PL/SQL code     | 16    | autonomous transactions, dynamic SQL, FORALL, collection types, the empty-string NULL trap |
+| PL/SQL code     | 17    | autonomous transactions, dynamic SQL, FORALL, collection types, the empty-string NULL trap |
 | SQL constructs  | 6     | CONNECT BY, (+) outer joins, ROWNUM, MERGE, DECODE null handling |
 | Packages        | 2     | package-level state, initialization blocks |
 | System packages | 5     | UTL_FILE, UTL_HTTP/SMTP/TCP, DBMS_SQL, DBMS_LOB, DBMS_OUTPUT |
@@ -170,6 +170,12 @@ Alpha. The extraction scripts and inventory are stable; the rule
 catalog is growing. Effort points in the report are relative weights
 for sorting findings; person-day ranges come from pgrecon estimate
 and its visible calibration.
+
+Scale is measured, not hoped for: a synthetic estate of 5,000 tables
+and 100,000 lines of PL/SQL across 1,600 stored units, one of them a
+16,000-line package body, loads and deep-parses in under two minutes
+on a laptop, and reporting runs in seconds. The generator lives at
+tools/make_scale_dump.py, so the measurement is reproducible.
 
 ## Development
 

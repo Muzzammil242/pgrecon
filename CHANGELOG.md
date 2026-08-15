@@ -2,6 +2,18 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## Unreleased
+
+- Wrapped PL/SQL gets its own rule (R-SRC-20): a wrapped unit is
+  obfuscated bytecode with nothing to assess from the database, so it
+  is reported as needing its original source instead of producing a
+  parse failure and garbage token matches. 63 rules.
+- Assessment scale is measured: a synthetic estate of 5,000 tables
+  and 100,000 lines of PL/SQL across 1,600 stored units, including a
+  16,000-line package body, loads and deep-parses in under two
+  minutes and reports in seconds. tools/make_scale_dump.py generates
+  the estate, so the measurement is reproducible.
+
 ## 0.1.2 - 2026-08-15
 
 - Table DDL as DBMS_METADATA emits it in the field now parses:
