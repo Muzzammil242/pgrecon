@@ -561,3 +561,22 @@ def test_raise_application_error_reads_call_graph(
     )
     conn.commit()
     assert fired(db, "R-SRC-13") == ["P_LOUD"]
+
+
+def test_evolved_type_fires_from_feature(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('OE', 'CATEGORY_T', 'TYPE', 'sll', 0, NULL)"
+    )
+    conn.execute(
+        "INSERT INTO plsql_features (owner, name, type, feature, line, detail)"
+        " VALUES ('OE', 'CATEGORY_T', 'TYPE', 'type_evolution', 5, NULL)"
+    )
+    conn.commit()
+    findings = [f for f in run_rules(db) if f.rule_id == "R-OBJ-09"]
+    assert [f.name for f in findings] == ["CATEGORY_T"]
+    assert "line 5" in findings[0].detail

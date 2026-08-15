@@ -1,6 +1,6 @@
 """Rules over schema-level objects and extraction quality."""
 
-from pgrecon.rules import Rule, Severity, sql_detector
+from pgrecon.rules import Rule, Severity, feature_grep, sql_detector
 
 RULES = [
     Rule(
@@ -141,6 +141,27 @@ RULES = [
         detector=sql_detector(
             "SELECT owner, name, type, 'status ' || status FROM objects"
             " WHERE status IS NOT NULL AND status <> 'VALID'"
+        ),
+    ),
+    Rule(
+        id="R-OBJ-09",
+        title="Evolved object type",
+        category="objects",
+        severity=Severity.MEDIUM,
+        effort=1.5,
+        remedy=(
+            "This type was changed in place with ALTER TYPE, which"
+            " PostgreSQL composite types cannot do once data depends on"
+            " them. Migrate the final shape, then decide how future"
+            " attribute additions will land: added columns, a jsonb"
+            " escape hatch, or a rebuild procedure."
+        ),
+        detector=sql_detector(
+            feature_grep(
+                ("type_evolution",),
+                "s.type = 'TYPE' AND UPPER(s.text) LIKE 'ALTER TYPE%'",
+                "evolved with ALTER TYPE",
+            )
         ),
     ),
     Rule(

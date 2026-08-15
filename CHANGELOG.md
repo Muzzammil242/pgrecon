@@ -2,6 +2,24 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## Unreleased
+
+- Table DDL as DBMS_METADATA emits it in the field now parses:
+  spelled-out partition specification lists, DEFERRABLE constraint
+  states, INTERVAL column types with spaced precision, LONG RAW, and
+  virtual column visibility markers no longer count as parse
+  failures. Found by assessing real extracted corpora, including
+  Oracle's official sample schemas.
+- Evolved object types are handled and flagged: DBA_SOURCE lists the
+  CREATE and the ALTER TYPE statements that changed it in one
+  listing, which used to defeat the parse. The original definition
+  now parses alone and the evolution is a finding of its own
+  (R-OBJ-09), because in-place type evolution has no PostgreSQL
+  equivalent. 62 rules.
+- XDB's machine-generated helper triggers (PURCHASEORDER$xd and
+  friends) are recorded as generated instead of parse failures; they
+  are Oracle's machinery, not user code to port.
+
 ## 0.1.1 - 2026-08-14
 
 Packaging and attribution; no behavior changes.
