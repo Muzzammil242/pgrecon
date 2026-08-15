@@ -2,7 +2,7 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## Unreleased
+## 0.1.2 - 2026-08-15
 
 - Table DDL as DBMS_METADATA emits it in the field now parses:
   spelled-out partition specification lists, DEFERRABLE constraint
