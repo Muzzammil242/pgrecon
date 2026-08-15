@@ -260,6 +260,24 @@ RULES = [
         ),
     ),
     Rule(
+        id="R-SRC-20",
+        title="Wrapped PL/SQL",
+        category="plsql",
+        severity=Severity.HIGH,
+        effort=3.0,
+        remedy=(
+            "The stored source is wrapped: obfuscated bytecode with"
+            " nothing readable to assess or port. Find the original in"
+            " version control or request it from the vendor; a unit"
+            " with neither must be reverse-engineered from behavior,"
+            " which belongs in the estimate as its own line."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, type, 'wrapped source' FROM plsql_units"
+            " WHERE parse_mode = 'wrapped'"
+        ),
+    ),
+    Rule(
         id="R-SRC-19",
         title="ROWID in code",
         category="plsql",

@@ -289,3 +289,28 @@ def test_generated_xdb_trigger_is_skipped(tmp_path: Path) -> None:
         " WHERE name = 'PURCHASEORDER$xd'"
     ).fetchone()
     assert row == ("generated", 0)
+
+
+def test_wrapped_unit_is_marked_not_parsed(tmp_path: Path) -> None:
+    dump = tmp_path / "dump"
+    dump.mkdir()
+    header = '"OWNER","NAME","TYPE","LINE","TEXT"'
+    rows = [
+        '"HR","SECRET_PKG","PACKAGE BODY",1,"PACKAGE BODY secret_pkg wrapped "',
+        '"HR","SECRET_PKG","PACKAGE BODY",2,"a000000"',
+        '"HR","SECRET_PKG","PACKAGE BODY",3,"1"',
+        '"HR","SECRET_PKG","PACKAGE BODY",4,"abcd GOTO commit SYSDATE xyz"',
+    ]
+    (dump / "source.csv").write_text(
+        "\n" + header + "\n" + "\n".join(rows) + "\n", encoding="utf-8"
+    )
+    db = tmp_path / "inv.db"
+    load_dump(dump, db)
+    conn = sqlite3.connect(db)
+    row = conn.execute(
+        "SELECT parse_mode, error_count FROM plsql_units WHERE name = 'SECRET_PKG'"
+    ).fetchone()
+    assert row == ("wrapped", 0)
+    # The base64 payload must produce no token-grep findings either.
+    features = conn.execute("SELECT COUNT(*) FROM plsql_features").fetchone()[0]
+    assert features == 0

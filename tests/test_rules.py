@@ -580,3 +580,17 @@ def test_evolved_type_fires_from_feature(
     findings = [f for f in run_rules(db) if f.rule_id == "R-OBJ-09"]
     assert [f.name for f in findings] == ["CATEGORY_T"]
     assert "line 5" in findings[0].detail
+
+
+def test_wrapped_unit_fires_its_own_rule(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'SECRET_PKG', 'PACKAGE BODY', 'wrapped', 0, NULL)"
+    )
+    conn.commit()
+    findings = [f for f in run_rules(db) if f.rule_id == "R-SRC-20"]
+    assert [f.name for f in findings] == ["SECRET_PKG"]

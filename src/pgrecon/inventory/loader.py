@@ -427,6 +427,19 @@ def _load_ddl(conn: sqlite3.Connection, text: str) -> int:
     return len(rows)
 
 
+_WRAPPED_HEADER = re.compile(r"\bwrapped\b", re.IGNORECASE)
+
+
+def _looks_wrapped(lines: list[str]) -> bool:
+    # DBMS_METADATA and DBA_SOURCE present a wrapped unit as its
+    # header line ending in the keyword wrapped, followed by the
+    # a000000 preamble of the wrap format. Both are required here so
+    # a parameter someone named "wrapped" cannot trigger it.
+    if not lines or not _WRAPPED_HEADER.search(lines[0]):
+        return False
+    return any(line.strip() == "a000000" for line in lines[1:4])
+
+
 def _analyze_plsql(conn: sqlite3.Connection) -> tuple[int, int, int]:
     """Deep-parse every stored unit and persist facts for the rules.
 
@@ -453,6 +466,18 @@ def _analyze_plsql(conn: sqlite3.Connection) -> tuple[int, int, int]:
     feature_count = 0
     call_count = 0
     for i, ((owner, name, otype), lines) in enumerate(groups.items(), start=1):
+        if _looks_wrapped(lines):
+            # Wrapped source is obfuscated bytecode: nothing readable
+            # to parse or grep, and the base64 payload would trip
+            # token greps at random. The rule engine reports the unit
+            # itself instead.
+            conn.execute(
+                "INSERT OR REPLACE INTO plsql_units"
+                " (owner, name, type, parse_mode, error_count, first_error)"
+                " VALUES (?, ?, ?, 'wrapped', 0, NULL)",
+                (owner, name, otype),
+            )
+            continue
         if name.lower().endswith("$xd"):
             # XDB writes helper triggers named <table>$xd for XML
             # schema storage. They are Oracle's machinery, not user
