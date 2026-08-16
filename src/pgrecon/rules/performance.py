@@ -57,7 +57,7 @@ RULES = [
             " FROM indexes i"
             " JOIN part_tables p"
             " ON p.owner = i.owner AND p.table_name = i.table_name"
-            " WHERE i.generated <> 'Y'"
+            " WHERE COALESCE(i.generated, 'N') <> 'Y'"
             " AND i.index_name NOT LIKE 'I_SNAP$%'"
             " AND NOT EXISTS (SELECT 1 FROM part_indexes pi"
             " WHERE pi.owner = i.owner AND pi.index_name = i.index_name)"

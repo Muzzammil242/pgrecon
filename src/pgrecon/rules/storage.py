@@ -123,7 +123,7 @@ RULES = [
             " FROM indexes i LEFT JOIN index_expressions e"
             " ON e.owner = i.owner AND e.index_name = i.index_name"
             " WHERE i.index_type LIKE 'FUNCTION-BASED%'"
-            " AND i.generated <> 'Y'"
+            " AND COALESCE(i.generated, 'N') <> 'Y'"
             " AND i.index_name NOT LIKE 'I_SNAP$%'"
         ),
     ),

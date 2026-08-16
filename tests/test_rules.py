@@ -594,3 +594,25 @@ def test_wrapped_unit_fires_its_own_rule(
     conn.commit()
     findings = [f for f in run_rules(db) if f.rule_id == "R-SRC-20"]
     assert [f.name for f in findings] == ["SECRET_PKG"]
+
+
+def test_null_generated_index_still_fires(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    # ALL_INDEXES.GENERATED can arrive NULL from a partial dump;
+    # generated <> 'Y' evaluates to NULL and silently dropped the
+    # finding until COALESCE fixed it.
+    conn, db = inventory
+    for name, generated in [("FBI_A", "N"), ("FBI_B", None)]:
+        conn.execute(
+            "INSERT INTO indexes (owner, index_name, table_name, index_type,"
+            " generated) VALUES ('HR', ?, 'EMP', 'FUNCTION-BASED NORMAL', ?)",
+            (name, generated),
+        )
+        conn.execute(
+            "INSERT INTO index_expressions (owner, index_name, position,"
+            " expression) VALUES ('HR', ?, 1, 'UPPER(name)')",
+            (name,),
+        )
+    conn.commit()
+    assert sorted(fired(db, "R-IDX-02")) == ["FBI_A", "FBI_B"]
