@@ -4,7 +4,7 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
 ## 0.1.4 - 2026-08-18
 
-Fixes from an independent code review; thanks to its author.
+Correctness and calibration fixes.
 
 - Indexes whose GENERATED flag arrives NULL from a partial dump no
   longer silently escape the function-based and global-index rules.
