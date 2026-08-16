@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 DETERMINISTIC_PACKAGES = ("extract", "inventory", "rules", "plsql", "effort")
-FORBIDDEN_PREFIXES = ("pgrecon.ai", "anthropic")
+FORBIDDEN_PREFIXES = ("pgrecon.ai", "pgrecon_report", "anthropic")
 
 
 def forbidden_imports(path: Path) -> list[str]:
