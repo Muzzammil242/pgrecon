@@ -104,6 +104,7 @@ RULES = [
             " CASE does not, so any DECODE branching on NULL changes"
             " behavior silently."
         ),
+        extension="orafce",
         detector=sql_detector(
             feature_grep(("decode_call",), "UPPER(s.text) LIKE '%DECODE(%'", "DECODE")
         ),

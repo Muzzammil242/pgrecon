@@ -168,7 +168,8 @@ RULES = [
         detector=sql_detector(
             feature_grep(
                 ("sql_cursor_attribute",),
-                "UPPER(s.text) LIKE '%SQL\\%%' ESCAPE '\\'",
+                "UPPER(s.text) LIKE '%SQL\\%%' ESCAPE '\\'"
+                " AND UPPER(s.text) NOT LIKE '%PLSQL\\%%' ESCAPE '\\'",
                 "SQL% attribute",
             )
         ),

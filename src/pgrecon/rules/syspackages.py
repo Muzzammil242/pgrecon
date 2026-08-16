@@ -19,6 +19,7 @@ RULES = [
             " Move file handling to the application, or accept the"
             " operational cost of an untrusted language such as plpython."
         ),
+        extension="orafce",
         detector=sql_detector(calls_grep(("UTL_FILE",), "UTL_FILE")),
     ),
     Rule(
@@ -75,6 +76,7 @@ RULES = [
             " consume the output programmatically, that pattern needs a"
             " real interface instead."
         ),
+        extension="orafce",
         detector=sql_detector(calls_grep(("DBMS_OUTPUT",), "DBMS_OUTPUT")),
     ),
 ]
