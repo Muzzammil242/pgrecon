@@ -4,7 +4,7 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
 ## 0.1.4 - 2026-08-18
 
-Correctness and calibration fixes.
+Fixes from an independent code review; thanks to its author.
 
 - Indexes whose GENERATED flag arrives NULL from a partial dump no
   longer silently escape the function-based and global-index rules.
@@ -16,8 +16,8 @@ Correctness and calibration fixes.
 - The effort rates are described as what they are: the author's
   field defaults, uncited and visible, to be calibrated per
   engagement.
-- The import boundary now also forbids the commercial report package
-  from deterministic code, not just the reserved AI module name.
+- The import boundary check now also covers the commercial report
+  package, so deterministic code cannot grow a dependency on it.
 - orafce is credited on the rules it genuinely helps: UTL_FILE,
   DBMS_OUTPUT, and DECODE.
 - A hand-mangled numeric field in a dump degrades to a missing value
