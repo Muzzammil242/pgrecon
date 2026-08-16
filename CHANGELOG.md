@@ -2,6 +2,29 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## 0.1.4 - 2026-08-18
+
+Fixes from an independent code review; thanks to its author.
+
+- Indexes whose GENERATED flag arrives NULL from a partial dump no
+  longer silently escape the function-based and global-index rules.
+- The effort baseline no longer scales per table: environments and
+  cutover scaffolding do not grow linearly with table count, and at
+  estate scale the old rate produced an indefensible number. The
+  baseline is flat; per-object work stays in schema conversion where
+  it belongs.
+- The effort rates are described as what they are: the author's
+  field defaults, uncited and visible, to be calibrated per
+  engagement.
+- The import boundary now also forbids the commercial report package
+  from deterministic code, not just the reserved AI module name.
+- orafce is credited on the rules it genuinely helps: UTL_FILE,
+  DBMS_OUTPUT, and DECODE.
+- A hand-mangled numeric field in a dump degrades to a missing value
+  instead of aborting the load, and pgrecon load says out loud that
+  it replaces an existing database file.
+- The SQL% fallback grep no longer matches PLSQL%.
+
 ## 0.1.3 - 2026-08-15
 
 - Wrapped PL/SQL gets its own rule (R-SRC-20): a wrapped unit is
