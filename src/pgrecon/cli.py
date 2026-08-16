@@ -108,9 +108,12 @@ def load(
         Path,
         typer.Argument(exists=True, file_okay=False, help="Extraction dump folder."),
     ],
-    db: Annotated[Path, typer.Option(help="Inventory database to create.")] = Path(
-        "inventory.db"
-    ),
+    db: Annotated[
+        Path,
+        typer.Option(
+            help="Inventory database to create. Replaces the file if it already exists."
+        ),
+    ] = Path("inventory.db"),
     encoding: Annotated[
         str,
         typer.Option(

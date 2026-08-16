@@ -405,7 +405,12 @@ def _coerce(column: str, value: str | None) -> str | int | None:
     if value is None or value == "":
         return None
     if column in INT_COLUMNS:
-        return int(float(value))
+        try:
+            return int(float(value))
+        except ValueError:
+            # A dump edited by hand or mangled in transit should
+            # degrade to a missing value, not abort the load.
+            return None
     return value
 
 
