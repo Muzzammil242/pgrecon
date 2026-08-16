@@ -8,10 +8,9 @@ by volume, and data movement; testing and stabilization is applied as
 a factor range on top, because in field reports it rivals development
 and nobody budgets it.
 
-Every rate here is a default calibration from published field
-experience and ora2pg-era rules of thumb. They are deliberately
-visible and deliberately conservative; real engagements calibrate
-them against the client's team and workload.
+Every rate here is a default the author set from migration field
+experience. None of it is a citation; all of it is visible, and real
+engagements calibrate it against the client's team and workload.
 """
 
 import sqlite3
@@ -22,10 +21,8 @@ from pgrecon.rules import Finding, Rule, Severity, all_rules
 
 # Person-days. The baseline covers environments, tooling, data-movement
 # setup, and cutover rehearsal scaffolding that exist even for a clean
-# schema.
+# schema; none of that scales with table count, so it is flat.
 BASELINE_PD = 5.0
-PER_TABLE_PD = 0.2
-PER_INDEX_PD = 0.05
 
 # Mechanical conversion rates for objects that mostly translate.
 CONVERT_TABLE_PD = 0.05
@@ -107,7 +104,6 @@ def estimate(
     try:
         tables = _scalar(conn, "SELECT COUNT(*) FROM tables")
         columns = _scalar(conn, "SELECT COUNT(*) FROM columns")
-        indexes = _scalar(conn, "SELECT COUNT(*) FROM indexes")
         views = _scalar(conn, "SELECT COUNT(*) FROM objects WHERE type = 'VIEW'")
         sequences = _scalar(
             conn, "SELECT COUNT(*) FROM objects WHERE type = 'SEQUENCE'"
@@ -121,10 +117,7 @@ def estimate(
         conn.close()
 
     components = (
-        Component(
-            "baseline and environment",
-            BASELINE_PD + PER_TABLE_PD * tables + PER_INDEX_PD * indexes,
-        ),
+        Component("baseline and environment", BASELINE_PD),
         Component(
             "schema conversion",
             CONVERT_TABLE_PD * tables

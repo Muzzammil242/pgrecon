@@ -145,15 +145,15 @@ a rules map for integrations.
 
     Migration effort estimate (person-days)
 
-      baseline and environment       7.4
+      baseline and environment       5.0
       schema conversion              1.7
       finding remediation           73.3
       PL/SQL porting by volume       0.8
       data movement                  0.0
-      development subtotal          83.1
+      development subtotal          80.7
 
     With testing and stabilization:
-      low 108, expected 133, high 183 person-days (5.1 to 8.7 person-months)
+      low 105, expected 129, high 178 person-days (5.0 to 8.5 person-months)
 
 The estimate is a sum of named components, so it can be argued with
 line by line, and it is a range, because a point estimate for a
