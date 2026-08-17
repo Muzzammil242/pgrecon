@@ -286,6 +286,23 @@ def test_type_method_default_parameters_parse() -> None:
     assert analysis.errors == ()
 
 
+def test_dollar_identifiers_are_not_directives() -> None:
+    # Oracle names may contain $: EVENT$END must survive untouched,
+    # and a unit using such names gains no conditional-compilation
+    # feature.
+    unit = (
+        "PROCEDURE p IS\n"
+        "  v NUMBER;\n"
+        "BEGIN\n"
+        "  SELECT COUNT(*) INTO v FROM event$end;\n"
+        "  UPDATE aq$if_map SET state = 1 WHERE id = v;\n"
+        "END;"
+    )
+    analysis = analyze_source(unit)
+    assert analysis.errors == ()
+    assert all(f.feature != "conditional_compilation" for f in analysis.features)
+
+
 def test_type_with_oid_clause_parses() -> None:
     # DBMS_METADATA and the Oracle sample schemas emit OID identity
     # clauses on portable types; the grammar predates them.

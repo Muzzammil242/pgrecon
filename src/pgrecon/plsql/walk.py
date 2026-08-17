@@ -184,11 +184,19 @@ def _scan_tokens(stream: Any) -> list[Feature]:
 
 _ALTER_TYPE = re.compile(r"^\s*ALTER\s+TYPE\b", re.IGNORECASE | re.MULTILINE)
 
-_CC_DIRECTIVE = re.compile(r"\$(?:if|elsif|else|end|error)\b", re.IGNORECASE)
-_CC_ERROR_BLOCK = re.compile(r"\$error\b.*?\$end\b", re.IGNORECASE | re.DOTALL)
-_CC_CONDITION = re.compile(r"\$(?:if|elsif)\b.*?\$then\b", re.IGNORECASE | re.DOTALL)
-_CC_TOKEN = re.compile(r"\$(?:else|end)\b", re.IGNORECASE)
-_CC_INQUIRY = re.compile(r"\$\$\w+")
+# The lookbehind keeps directive matching away from identifiers:
+# EVENT$END is a legal Oracle name whose tail must not read as $END.
+# A true directive is never preceded by an identifier character.
+_CC_DIRECTIVE = re.compile(r"(?<![\w$#])\$(?:if|elsif|else|end|error)\b", re.IGNORECASE)
+_CC_ERROR_BLOCK = re.compile(
+    r"(?<![\w$#])\$error\b.*?(?<![\w$#])\$end\b", re.IGNORECASE | re.DOTALL
+)
+_CC_CONDITION = re.compile(
+    r"(?<![\w$#])\$(?:if|elsif)\b.*?(?<![\w$#])\$then\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_CC_TOKEN = re.compile(r"(?<![\w$#])\$(?:else|end)\b", re.IGNORECASE)
+_CC_INQUIRY = re.compile(r"(?<![\w$#])\$\$\w+")
 
 
 def _blank(match: re.Match[str]) -> str:
