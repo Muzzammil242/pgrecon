@@ -184,6 +184,81 @@ def _scan_tokens(stream: Any) -> list[Feature]:
 
 _ALTER_TYPE = re.compile(r"^\s*ALTER\s+TYPE\b", re.IGNORECASE | re.MULTILINE)
 
+_CC_DIRECTIVE = re.compile(r"\$(?:if|elsif|else|end|error)\b", re.IGNORECASE)
+_CC_ERROR_BLOCK = re.compile(r"\$error\b.*?\$end\b", re.IGNORECASE | re.DOTALL)
+_CC_CONDITION = re.compile(r"\$(?:if|elsif)\b.*?\$then\b", re.IGNORECASE | re.DOTALL)
+_CC_TOKEN = re.compile(r"\$(?:else|end)\b", re.IGNORECASE)
+_CC_INQUIRY = re.compile(r"\$\$\w+")
+
+
+def _blank(match: re.Match[str]) -> str:
+    return "".join(ch if ch == "\n" else " " for ch in match.group(0))
+
+
+def _strip_conditional_compilation(text: str) -> tuple[str, int | None]:
+    """Blank $IF directives in place, keeping every branch's code.
+
+    Selection directives pick code at compile time by version or flag.
+    For assessment every branch matters, so the directives and their
+    conditions become whitespace - line numbers survive - and all
+    branch bodies stay visible to the walk. Inquiry references such as
+    $$plsql_unit become NULL, which parses as an expression wherever
+    they legally appear. Returns the line of the first directive, or
+    None when the unit uses no conditional compilation.
+    """
+    directive = _CC_DIRECTIVE.search(text)
+    inquiry = _CC_INQUIRY.search(text)
+    if directive is None and inquiry is None:
+        return text, None
+    first = min(m.start() for m in (directive, inquiry) if m is not None)
+    line = text.count("\n", 0, first) + 1
+    text = _CC_ERROR_BLOCK.sub(_blank, text)
+    text = _CC_CONDITION.sub(_blank, text)
+    text = _CC_TOKEN.sub(_blank, text)
+    text = _CC_INQUIRY.sub("NULL", text)
+    return text, line
+
+
+_TYPE_KINDS = {"TYPE", "TYPE BODY"}
+_DEFAULT_KW = re.compile(r"\bdefault\b", re.IGNORECASE)
+_OID_CLAUSE = re.compile(r"\bOID\s+'[0-9A-Fa-f]+'", re.IGNORECASE)
+
+
+def _blank_parameter_defaults(text: str) -> str:
+    """Blank DEFAULT clauses in object-type method parameter lists.
+
+    The vendored grammar predates DEFAULT values on type method
+    parameters, which are legal Oracle. Each DEFAULT expression is
+    blanked from the keyword to the comma or closing parenthesis that
+    ends it, quote- and depth-aware, so the parameter list itself
+    survives and line numbers do not move.
+    """
+    out = list(text)
+    for kw in _DEFAULT_KW.finditer(text):
+        i = kw.end()
+        depth = 0
+        in_string = False
+        while i < len(text):
+            ch = text[i]
+            if in_string:
+                if ch == "'":
+                    in_string = False
+            elif ch == "'":
+                in_string = True
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif ch == "," and depth == 0:
+                break
+            i += 1
+        for j in range(kw.start(), i):
+            if out[j] != "\n":
+                out[j] = " "
+    return "".join(out)
+
 
 def analyze_source(text: str, unit_type: str | None = None) -> UnitAnalysis:
     """Parse one stored unit and extract its migration-relevant facts.
@@ -198,7 +273,14 @@ def analyze_source(text: str, unit_type: str | None = None) -> UnitAnalysis:
     parse whole, the text is split at the first ALTER TYPE line and
     the original definition parsed alone; the evolution itself is
     recorded as a feature, because it is a migration fact.
+
+    Conditional compilation directives are blanked before parsing so
+    every branch's code stays visible, and their presence is recorded
+    as a feature - the port has to pick a branch. Object-type method
+    parameters with DEFAULT values, legal Oracle the grammar predates,
+    get a retry with the defaults blanked when the first parse fails.
     """
+    text, cc_line = _strip_conditional_compilation(text)
     parse = parse_source(text)
     evolution_line: int | None = None
     if parse.errors and unit_type == "TYPE":
@@ -208,6 +290,16 @@ def analyze_source(text: str, unit_type: str | None = None) -> UnitAnalysis:
             if not retry.errors:
                 parse = retry
                 evolution_line = text.count("\n", 0, match.start()) + 1
+                text = text[: match.start()]
+    if parse.errors and unit_type in _TYPE_KINDS:
+        # Two clauses the grammar predates, blanked together: DEFAULT
+        # values on method parameters, and the OID identity clause the
+        # sample schemas and replication-aware exports carry.
+        cleaned = _OID_CLAUSE.sub(_blank, _blank_parameter_defaults(text))
+        if cleaned != text:
+            retry = parse_source(cleaned)
+            if not retry.errors:
+                parse = retry
     features: list[Feature] = []
     calls: list[Call] = []
     if parse.tree is not None and not parse.errors:
@@ -216,6 +308,8 @@ def analyze_source(text: str, unit_type: str | None = None) -> UnitAnalysis:
         features = listener.features + _scan_tokens(parse.tokens)
         if evolution_line is not None:
             features.append(Feature("type_evolution", evolution_line, None))
+        if cc_line is not None:
+            features.append(Feature("conditional_compilation", cc_line, None))
         features.sort(key=lambda f: (f.line, f.feature))
         calls = sorted(set(listener.calls), key=lambda c: (c.line, c.callee))
     return UnitAnalysis(parse.mode, parse.errors, tuple(features), tuple(calls))

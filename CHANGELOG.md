@@ -2,6 +2,19 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## Unreleased
+
+- Conditional compilation is handled and flagged (R-SRC-21): $IF
+  directives are blanked before parsing so every branch's code stays
+  analyzed, inquiry references such as $$plsql_unit parse as
+  expressions, and the directive itself becomes a finding, because
+  the port has to pick a branch. 64 rules.
+- Object-type methods with DEFAULT parameter values and type
+  declarations carrying OID identity clauses no longer count as
+  parse failures; both are legal Oracle the vendored grammar
+  predates. Found by feeding pljson, Logger, utPLSQL, and the legacy
+  Oracle sample schemas through the tool.
+
 ## 0.1.4 - 2026-08-18
 
 Fixes from an independent code review; thanks to its author.

@@ -330,6 +330,34 @@ def test_deep_fact_becomes_finding(
     assert "line 41" in findings[0].detail
 
 
+def test_conditional_compilation_fires_from_feature_and_fallback(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'PKG_CC', 'PACKAGE BODY', 'sll', 0, NULL)"
+    )
+    conn.execute(
+        "INSERT INTO plsql_features (owner, name, type, feature, line, detail)"
+        " VALUES ('HR', 'PKG_CC', 'PACKAGE BODY', 'conditional_compilation',"
+        " 12, NULL)"
+    )
+    conn.execute(
+        "INSERT INTO plsql_units"
+        " (owner, name, type, parse_mode, error_count, first_error)"
+        " VALUES ('HR', 'PKG_CC_BROKEN', 'PACKAGE BODY', 'll', 3, 'boom')"
+    )
+    conn.execute(
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'PKG_CC_BROKEN', 'PACKAGE BODY', 4,"
+        " '$IF dbms_db_version.ver_le_11 $THEN')"
+    )
+    conn.commit()
+    assert fired(db, "R-SRC-21") == ["PKG_CC", "PKG_CC_BROKEN"]
+
+
 def test_optimizer_hint_fires(inventory: tuple[sqlite3.Connection, Path]) -> None:
     conn, db = inventory
     conn.execute(
