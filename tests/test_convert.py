@@ -385,6 +385,118 @@ def test_constraint_on_hidden_system_column_declines(parts_db: Path) -> None:
     assert reasons and "hidden system column" in reasons[0]
 
 
+@pytest.fixture()
+def closers_db(tmp_path: Path) -> Path:
+    db = tmp_path / "cl.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary)
+          VALUES ('HR', 'ORDERS', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'ORDERS', 'ORDER_ID', 1, 'NUMBER', 22, 10, 0, 'N'),
+          ('HR', 'ORDERS', 'PLACED_AT', 2, 'DATE', 7, NULL, NULL, 'N'),
+          ('HR', 'ORDERS', 'STATE', 3, 'VARCHAR2', 10, NULL, NULL, 'Y'),
+          ('HR', 'ORDERS', 'TOTAL_TX', 4, 'NUMBER', 22, 10, 2, 'Y');
+        INSERT INTO column_defaults
+          (owner, table_name, column_name, default_text, virtual, truncated)
+          VALUES
+          ('HR', 'ORDERS', 'PLACED_AT', 'SYSDATE', 'NO', 0),
+          ('HR', 'ORDERS', 'STATE', '''NEW''', 'NO', 0),
+          ('HR', 'ORDERS', 'TOTAL_TX', '"ORDER_ID" * 2', 'YES', 0);
+        INSERT INTO sequences
+          (owner, sequence_name, min_value, max_value, increment_by,
+           cycle_flag, cache_size, last_number) VALUES
+          ('HR', 'ORDER_SEQ', '1', '9999999999999999999999999999', '1',
+           'N', '20', '4242'),
+          ('HR', 'BAD_SEQ', 'x', 'y', '1', 'N', '0', '1');
+        INSERT INTO synonyms
+          (owner, synonym_name, table_owner, table_name, db_link) VALUES
+          ('HR', 'ORD', 'HR', 'ORDERS', NULL),
+          ('HR', 'FAR', 'HR', 'EMPLOYEES', 'HR_REMOTE'),
+          ('PUBLIC', 'ORDERS_PUB', 'HR', 'ORDERS', NULL);
+        INSERT INTO db_links (owner, db_link, username, host)
+          VALUES ('HR', 'HR_REMOTE', 'HR', 'orcl');
+        """
+    )
+    conn.commit()
+    conn.close()
+    return db
+
+
+def test_defaults_without_pg_counterparts_decline(tmp_path: Path) -> None:
+    db = tmp_path / "dg.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary)
+          VALUES ('HR', 'GUIDS', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'GUIDS', 'ID', 1, 'RAW', 16, NULL, NULL, 'N'),
+          ('HR', 'GUIDS', 'MADE', 2, 'DATE', 7, NULL, NULL, 'Y');
+        INSERT INTO column_defaults
+          (owner, table_name, column_name, default_text, virtual, truncated)
+          VALUES
+          ('HR', 'GUIDS', 'ID', 'SYS_GUID()', 'NO', 0),
+          ('HR', 'GUIDS', 'MADE', 'TO_DATE(SYSDATE)', 'NO', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(db)
+    assert "sys_guid" not in result.sql.lower()
+    assert "to_date" not in result.sql.lower()
+    assert "id bytea NOT NULL" in result.sql
+    reasons = " ".join(r.reason for r in result.residue)
+    assert "SYS_GUID" in reasons
+    assert "TO_DATE" in reasons
+
+
+def test_defaults_and_generated_columns(closers_db: Path) -> None:
+    sql = convert_schema(closers_db).sql
+    assert "placed_at timestamp(0) DEFAULT CURRENT_TIMESTAMP NOT NULL" in sql
+    assert "state varchar(10) DEFAULT 'NEW'" in sql
+    assert "total_tx numeric(10,2) GENERATED ALWAYS AS (order_id * 2) STORED" in sql
+
+
+def test_sequences_emit_with_bigint_safe_bounds(closers_db: Path) -> None:
+    result = convert_schema(closers_db)
+    sql = result.sql
+    assert (
+        "CREATE SEQUENCE order_seq INCREMENT BY 1 MINVALUE 1"
+        " START WITH 4242 CACHE 20;" in sql
+    )
+    assert "MAXVALUE" not in sql
+    reasons = [r for r in result.residue if r.object_name == "BAD_SEQ"]
+    assert reasons and "recreate by hand" in reasons[0].reason
+    assert result.sequences == 1
+
+
+def test_synonyms_become_views_or_residue(closers_db: Path) -> None:
+    result = convert_schema(closers_db)
+    assert "CREATE OR REPLACE VIEW ord AS SELECT * FROM orders;" in result.sql
+    kinds = {(r.kind, r.object_name) for r in result.residue}
+    assert ("synonym", "FAR") in kinds
+    assert ("synonym", "ORDERS_PUB") in kinds
+    assert result.synonyms == 1
+
+
+def test_db_links_scaffold_fdw(closers_db: Path) -> None:
+    result = convert_schema(closers_db)
+    sql = result.sql
+    assert "CREATE EXTENSION IF NOT EXISTS oracle_fdw;" in sql
+    assert (
+        "CREATE SERVER hr_remote FOREIGN DATA WRAPPER oracle_fdw"
+        " OPTIONS (dbserver 'orcl');" in sql
+    )
+    assert "CREATE USER MAPPING FOR CURRENT_USER SERVER hr_remote" in sql
+    assert result.db_links == 1
+
+
 def test_unconvertible_bound_omits_all_children(parts_db: Path) -> None:
     result = convert_schema(parts_db)
     assert "broken_p1" not in result.sql

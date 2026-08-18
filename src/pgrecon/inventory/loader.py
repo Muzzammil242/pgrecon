@@ -207,6 +207,30 @@ CSV_TABLES: dict[str, tuple[str, dict[str, str]]] = {
             "TRUNCATED": "truncated",
         },
     ),
+    "sequences.csv": (
+        "sequences",
+        {
+            "OWNER": "owner",
+            "SEQUENCE_NAME": "sequence_name",
+            "MIN_VALUE": "min_value",
+            "MAX_VALUE": "max_value",
+            "INCREMENT_BY": "increment_by",
+            "CYCLE_FLAG": "cycle_flag",
+            "CACHE_SIZE": "cache_size",
+            "LAST_NUMBER": "last_number",
+        },
+    ),
+    "column_defaults.csv": (
+        "column_defaults",
+        {
+            "OWNER": "owner",
+            "TABLE_NAME": "table_name",
+            "COLUMN_NAME": "column_name",
+            "DEFAULT_TEXT": "default_text",
+            "VIRTUAL": "virtual",
+            "TRUNCATED": "truncated",
+        },
+    ),
     "synonyms.csv": (
         "synonyms",
         {

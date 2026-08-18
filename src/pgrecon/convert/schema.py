@@ -129,6 +129,9 @@ class Conversion:
     indexes: int
     views: int
     partitions: int
+    sequences: int
+    synonyms: int
+    db_links: int
 
 
 def ident(name: str) -> str:
@@ -412,6 +415,10 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
     emitted: dict[tuple[str, str], set[str]] = {}
     dropped: dict[tuple[str, str], set[str]] = {}
 
+    # Sequences first: column defaults may call nextval on them, and
+    # PostgreSQL resolves that at CREATE TABLE time.
+    sequence_count = _emit_sequences(conn, out, residue)
+
     tables = conn.execute(
         "SELECT owner, table_name, temporary FROM tables" " ORDER BY owner, table_name"
     ).fetchall()
@@ -424,6 +431,14 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
                 Residue(owner, table, "table", "no column facts in the inventory")
             )
             continue
+        extras = {
+            (r["column_name"] or "").upper(): r
+            for r in conn.execute(
+                "SELECT column_name, default_text, virtual, truncated"
+                " FROM column_defaults WHERE owner = ? AND table_name = ?",
+                (owner, table),
+            )
+        }
         lines: list[str] = []
         kept_columns: set[str] = set()
         for c in cols:
@@ -447,9 +462,61 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
                 residue.append(
                     Residue(owner, f"{table}.{c['column_name']}", "note", mapped.note)
                 )
+            cname = (c["column_name"] or "").upper()
             null = "" if (c["nullable"] or "Y") == "Y" else " NOT NULL"
-            lines.append(f"    {ident(c['column_name'])} {mapped.pg_type}{null}")
-            kept_columns.add((c["column_name"] or "").upper())
+            suffix = ""
+            extra = extras.get(cname)
+            if extra is not None and (extra["virtual"] or "NO") == "YES":
+                expr = (
+                    None
+                    if extra["truncated"]
+                    else _fold_expression(extra["default_text"] or "")
+                )
+                guard = None if expr is None else _default_guard(expr)
+                if expr is None or guard is not None:
+                    residue.append(
+                        Residue(
+                            owner,
+                            f"{table}.{c['column_name']}",
+                            "column",
+                            guard
+                            or "virtual column expression could not be"
+                            " translated; recreate it by hand",
+                        )
+                    )
+                    dropped.setdefault((owner, table), set()).add(cname)
+                    continue
+                suffix = f" GENERATED ALWAYS AS ({expr}) STORED"
+            elif extra is not None and (extra["default_text"] or "").strip():
+                if extra["truncated"]:
+                    residue.append(
+                        Residue(
+                            owner,
+                            f"{table}.{c['column_name']}",
+                            "note",
+                            "default was truncated during extraction;"
+                            " column emitted without it",
+                        )
+                    )
+                else:
+                    folded = _fold_expression(extra["default_text"])
+                    guard = None if folded is None else _default_guard(folded)
+                    if folded is None or guard is not None:
+                        residue.append(
+                            Residue(
+                                owner,
+                                f"{table}.{c['column_name']}",
+                                "note",
+                                (guard or "default could not be translated")
+                                + "; column emitted without it",
+                            )
+                        )
+                    else:
+                        suffix = f" DEFAULT {folded}"
+            lines.append(
+                f"    {ident(c['column_name'])} {mapped.pg_type}{suffix}{null}"
+            )
+            kept_columns.add(cname)
         if not lines:
             residue.append(
                 Residue(owner, table, "table", "every column was unconvertible")
@@ -483,7 +550,9 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
     constraint_count += _emit_checks(conn, out, residue, emitted, dropped)
     constraint_count += _emit_foreign_keys(conn, out, residue, emitted)
     index_count = _emit_indexes(conn, out, residue, emitted)
-    view_count = _emit_views(conn, out, residue, emitted, dropped)
+    view_count, created_views = _emit_views(conn, out, residue, emitted, dropped)
+    synonym_count = _emit_synonyms(conn, out, residue, emitted, created_views)
+    link_count = _emit_db_links(conn, out, residue)
 
     return Conversion(
         "\n".join(out),
@@ -493,6 +562,9 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
         index_count,
         view_count,
         partition_count,
+        sequence_count,
+        synonym_count,
+        link_count,
     )
 
 
@@ -752,6 +824,34 @@ def _emit_foreign_keys(
     return count
 
 
+_NO_PG_DEFAULT_FUNCS = re.compile(
+    r"\b(SYS_GUID|SYS_CONTEXT|USERENV)\s*\(", re.IGNORECASE
+)
+_TO_DATE_NONLITERAL = re.compile(r"\bTO_DATE\s*\(\s*[^')]", re.IGNORECASE)
+
+
+def _default_guard(folded: str) -> str | None:
+    """Why a folded default expression cannot ship, or None.
+
+    The fold makes syntax valid; this catches functions PostgreSQL
+    does not have. SYS_GUID and the context readers have no
+    counterpart, and TO_DATE over a non-literal folds into a
+    signature that does not exist.
+    """
+    m = _NO_PG_DEFAULT_FUNCS.search(folded)
+    if m:
+        return (
+            f"{m.group(1).upper()} has no PostgreSQL counterpart in a"
+            " default; choose a replacement by hand"
+        )
+    if _TO_DATE_NONLITERAL.search(folded):
+        return (
+            "TO_DATE over a non-literal has no matching PostgreSQL"
+            " signature; rewrite the default by hand"
+        )
+    return None
+
+
 def _fold_expression(expression: str) -> str | None:
     """An index expression folded to converted identifiers, or None."""
     try:
@@ -960,13 +1060,13 @@ def _emit_views(
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
     dropped: dict[tuple[str, str], set[str]],
-) -> int:
+) -> tuple[int, set[str]]:
     """Views via transpile of the stored DDL, in dependency order."""
     rows = conn.execute(
         "SELECT owner, name, ddl FROM ddl WHERE type = 'VIEW' ORDER BY name"
     ).fetchall()
     if not rows:
-        return 0
+        return 0, set()
     names = {r["name"] for r in rows}
     edges: dict[str, set[str]] = {r["name"]: set() for r in rows}
     for d in conn.execute(
@@ -1054,6 +1154,179 @@ def _emit_views(
         wrote = True
         count += 1
     if wrote and out and out[-1] != "":
+        out.append("")
+    return count, created_views
+
+
+_INTEGERISH = re.compile(r"^-?\d+$")
+_PG_BIGINT_MAX = 9223372036854775807
+
+
+def _emit_sequences(
+    conn: sqlite3.Connection, out: list[str], residue: list[Residue]
+) -> int:
+    """Sequences restarted at their extracted position.
+
+    Oracle bounds reach 1e28; a bound past bigint is treated as
+    unbounded rather than declined, because that is what it means in
+    practice. Anything else non-numeric declines.
+    """
+    rows = conn.execute(
+        "SELECT owner, sequence_name, min_value, max_value, increment_by,"
+        " cycle_flag, cache_size, last_number FROM sequences"
+        " ORDER BY owner, sequence_name"
+    ).fetchall()
+    count = 0
+    for r in rows:
+        fields = {
+            k: (r[k] or "").strip()
+            for k in ("min_value", "max_value", "increment_by", "last_number")
+        }
+        if not all(
+            _INTEGERISH.match(v) for k, v in fields.items() if k != "max_value"
+        ) or not (_INTEGERISH.match(fields["max_value"]) or not fields["max_value"]):
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["sequence_name"],
+                    "sequence",
+                    "bounds did not extract as numbers; recreate by hand",
+                )
+            )
+            continue
+        parts = [f"CREATE SEQUENCE {ident(r['sequence_name'])}"]
+        parts.append(f"INCREMENT BY {fields['increment_by']}")
+        if abs(int(fields["min_value"])) <= _PG_BIGINT_MAX:
+            parts.append(f"MINVALUE {fields['min_value']}")
+        if fields["max_value"] and int(fields["max_value"]) <= _PG_BIGINT_MAX:
+            parts.append(f"MAXVALUE {fields['max_value']}")
+        start = int(fields["last_number"])
+        if start > _PG_BIGINT_MAX:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["sequence_name"],
+                    "sequence",
+                    "current value exceeds bigint; recreate by hand",
+                )
+            )
+            continue
+        parts.append(f"START WITH {start}")
+        cache = (r["cache_size"] or "").strip()
+        if _INTEGERISH.match(cache) and int(cache) > 1:
+            parts.append(f"CACHE {cache}")
+        if (r["cycle_flag"] or "N") == "Y":
+            parts.append("CYCLE")
+        out.append(" ".join(parts) + ";")
+        count += 1
+    if count:
+        out.append("")
+    return count
+
+
+def _emit_synonyms(
+    conn: sqlite3.Connection,
+    out: list[str],
+    residue: list[Residue],
+    emitted: dict[tuple[str, str], set[str]],
+    created_views: set[str],
+) -> int:
+    """Schema-local synonyms over converted relations become views.
+
+    A simple SELECT * view is updatable on PostgreSQL, which is as
+    close to a synonym as vanilla PostgreSQL gets. Anything pointing
+    at a database link, a public synonym, or an unconverted target
+    declines with the reason.
+    """
+    rows = conn.execute(
+        "SELECT owner, synonym_name, table_owner, table_name, db_link"
+        " FROM synonyms ORDER BY owner, synonym_name"
+    ).fetchall()
+    known = {t for (_, t) in emitted} | created_views
+    count = 0
+    for r in rows:
+        if r["db_link"]:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["synonym_name"],
+                    "synonym",
+                    "points through a database link; reach the remote"
+                    " table with a foreign table instead",
+                )
+            )
+            continue
+        if (r["owner"] or "").upper() == "PUBLIC":
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["synonym_name"],
+                    "synonym",
+                    "public synonym; PostgreSQL resolves names through"
+                    " search_path - decide placement by hand",
+                )
+            )
+            continue
+        target = (r["table_name"] or "").upper()
+        if target not in known:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["synonym_name"],
+                    "synonym",
+                    f"its target {target} is not in the converted set",
+                )
+            )
+            continue
+        out.append(
+            f"CREATE OR REPLACE VIEW {ident(r['synonym_name'])}"
+            f" AS SELECT * FROM {ident(r['table_name'])};"
+        )
+        count += 1
+    if count:
+        out.append("")
+    return count
+
+
+def _emit_db_links(
+    conn: sqlite3.Connection, out: list[str], residue: list[Residue]
+) -> int:
+    """Database links scaffold as oracle_fdw servers.
+
+    The dictionary never yields the password, so the user mapping is
+    emitted with an empty one and the residue says to complete the
+    credentials and define foreign tables for whatever the link
+    serves.
+    """
+    rows = conn.execute(
+        "SELECT owner, db_link, username, host FROM db_links" " ORDER BY owner, db_link"
+    ).fetchall()
+    count = 0
+    for r in rows:
+        if count == 0:
+            out.append("CREATE EXTENSION IF NOT EXISTS oracle_fdw;")
+        link = ident((r["db_link"] or "").split(".")[0])
+        out.append(
+            f"CREATE SERVER {link} FOREIGN DATA WRAPPER oracle_fdw"
+            f" OPTIONS (dbserver '{(r['host'] or '').replace(chr(39), '')}');"
+        )
+        user = (r["username"] or "").replace("'", "")
+        out.append(
+            f"CREATE USER MAPPING FOR CURRENT_USER SERVER {link}"
+            f" OPTIONS (\"user\" '{user}', password '');"
+        )
+        residue.append(
+            Residue(
+                r["owner"],
+                r["db_link"],
+                "note",
+                "database link scaffolded as an oracle_fdw server;"
+                " complete the credentials and define foreign tables"
+                " for what the link serves",
+            )
+        )
+        count += 1
+    if count:
         out.append("")
     return count
 

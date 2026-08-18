@@ -4,6 +4,14 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
 ## Unreleased
 
+- The converter covers the rest of schema structure: sequences
+  restarted at their extracted position with bigint-safe bounds,
+  schema-local synonyms as updatable views, database links
+  scaffolded as oracle_fdw servers awaiting credentials, column
+  defaults translated through the same folding as views (SYSDATE
+  becomes CURRENT_TIMESTAMP), and virtual columns as PostgreSQL
+  generated columns. Defaults with no PostgreSQL counterpart, such
+  as SYS_GUID, decline by name instead of failing on the target.
 - pgrecon convert begins: schema structure to PostgreSQL DDL, offline
   from the inventory's dictionary facts. Tables with a documented
   type mapping, primary and unique keys, checks, and foreign keys;
