@@ -10,7 +10,14 @@ import ast
 import sys
 from pathlib import Path
 
-DETERMINISTIC_PACKAGES = ("extract", "inventory", "rules", "plsql", "effort")
+DETERMINISTIC_PACKAGES = (
+    "extract",
+    "inventory",
+    "rules",
+    "plsql",
+    "effort",
+    "convert",
+)
 FORBIDDEN_PREFIXES = ("pgrecon.ai", "pgrecon_report", "anthropic")
 
 
