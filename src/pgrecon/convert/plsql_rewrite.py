@@ -8,6 +8,8 @@ DDL that might be wrong. Comments and formatting survive because the
 edits are character-exact splices into the original text.
 """
 
+import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -81,6 +83,12 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
         self.declares = False
         self.cursors: set[str] = set()
         self.locals: set[str] = set()
+        # Cursor-attribute spans proven equivalent by adjacency, which
+        # the token scan must not refuse a second time.
+        self.handled: list[tuple[int, int]] = []
+        # (span start, span end, USING arity) of each dynamic statement
+        # whose literals are candidates for bind-placeholder folding.
+        self.dynamic_specs: list[tuple[int, int, int]] = []
 
     # -- plumbing ---------------------------------------------------
 
@@ -324,6 +332,29 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
             "dynamic SQL strings are not translated; verify each"
             " statement text against PostgreSQL"
         )
+        using = ctx.using_clause()
+        if isinstance(using, list):
+            using = using[0] if using else None
+        if using is None:
+            return
+        elements = using.using_element()
+        if not isinstance(elements, list):
+            elements = [elements] if elements is not None else []
+        for element in elements:
+            if any(t.type == L.OUT for t in self._terminals(element)):
+                self._reason(
+                    ctx,
+                    "OUT bind arguments have no counterpart in"
+                    " EXECUTE ... USING; rewrite the call by hand",
+                )
+                return
+        # Literals live between the statement keyword and USING; the
+        # token scan folds :name placeholders to $N when their count
+        # matches the USING arity, because Oracle binds these by
+        # position exactly as PostgreSQL numbers them.
+        self.dynamic_specs.append(
+            (ctx.start.start, using.start.start - 1, len(elements))
+        )
 
     def enterInto_clause(self, ctx: Any) -> None:
         # Oracle SELECT INTO raises NO_DATA_FOUND on zero rows and
@@ -337,6 +368,33 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
             if tok.type == L.INTO:
                 self._edit(tok.start, tok.stop, "INTO STRICT")
                 return
+
+    def enterSeq_of_statements(self, ctx: Any) -> None:
+        # EXIT WHEN c%NOTFOUND directly after FETCH c is the one
+        # cursor-attribute shape with a proven equivalent: plpgsql's
+        # FOUND reflects exactly the preceding FETCH.
+        statements = ctx.statement()
+        if not isinstance(statements, list):
+            return
+        for prev, nxt in zip(statements, statements[1:], strict=False):
+            fetch = _first_descendant(prev, "Fetch_statement")
+            exit_stmt = _first_descendant(nxt, "Exit_statement")
+            if fetch is None or exit_stmt is None:
+                continue
+            cursor = fetch.cursor_name()
+            condition = exit_stmt.condition()
+            if cursor is None or condition is None:
+                continue
+            name = cursor.getText().strip('"').upper()
+            spelled = condition.getText().strip().strip('"').upper()
+            spelled = spelled.replace('"', "").replace(" ", "")
+            if spelled == f"{name}%NOTFOUND":
+                self._edit_ctx(condition, "NOT FOUND")
+            elif spelled == f"{name}%FOUND":
+                self._edit_ctx(condition, "FOUND")
+            else:
+                continue
+            self.handled.append((condition.start.start, condition.stop.stop))
 
     def enterSavepoint_statement(self, ctx: Any) -> None:
         self._reason(
@@ -396,6 +454,24 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
             self._edit_ctx(name_ctx, replacement)
 
 
+def _first_descendant(ctx: Any, name: str) -> Any | None:
+    """The first descendant context of the given class inside one
+    statement, without crossing into nested statement lists."""
+    for i in range(ctx.getChildCount()):
+        child = ctx.getChild(i)
+        if not hasattr(child, "getChildCount"):
+            continue
+        kind = type(child).__name__.replace("Context", "")
+        if kind == name:
+            return child
+        if kind == "Seq_of_statements":
+            continue
+        found = _first_descendant(child, name)
+        if found is not None:
+            return found
+    return None
+
+
 def _top_level_commas(tokens: list[Any], open_index: int) -> tuple[int, list[int]]:
     """Comma count and their indexes inside one balanced paren span."""
     depth = 0
@@ -422,6 +498,47 @@ _CURSOR_ATTRIBUTES = {
 
 _Q_PAIRS = {"[": "]", "(": ")", "{": "}", "<": ">"}
 
+_BIND = re.compile(r":([A-Za-z][A-Za-z0-9_]*)")
+
+
+def _number_binds(body: str, counter: Iterator[int]) -> str:
+    return _BIND.sub(lambda m: f"${next(counter)}", body)
+
+
+def _fold_binds(rewriter: _Rewriter, tokens: list[Any]) -> set[int]:
+    """Fold :name placeholders to $N inside dynamic statement literals.
+
+    Oracle associates EXECUTE IMMEDIATE placeholders with USING
+    arguments by position, which is exactly PostgreSQL's numbering, so
+    the fold is safe precisely when the placeholder count across the
+    statement's literals equals the USING arity. Anything else stays
+    verbatim under the standing verify-by-hand note. Returns the
+    token starts this pass rewrote, so the main scan leaves them be.
+    """
+    consumed: set[int] = set()
+    for start, end, arity in rewriter.dynamic_specs:
+        if arity == 0:
+            continue
+        literals = []
+        total = 0
+        for tok in tokens:
+            if tok.type != L.CHAR_STRING or not start <= tok.start <= end:
+                continue
+            standard = _q_literal(tok.text or "") or (tok.text or "")
+            count = len(_BIND.findall(standard[1:-1]))
+            literals.append((tok, standard, count))
+            total += count
+        if total != arity:
+            continue
+        counter = iter(range(1, total + 1))
+        for tok, standard, count in literals:
+            if count == 0:
+                continue
+            body = _number_binds(standard[1:-1], counter)
+            rewriter._edit(tok.start, tok.stop, "'" + body + "'")
+            consumed.add(tok.start)
+    return consumed
+
 
 def _q_literal(text: str) -> str | None:
     """A q-quoted literal as a standard one, or None if not q-quoted."""
@@ -443,6 +560,7 @@ def _scan_tokens(rewriter: _Rewriter, stream: Any) -> None:
     match here is live code.
     """
     tokens = [t for t in stream.tokens if t.channel == 0]
+    folded_literals = _fold_binds(rewriter, tokens)
     for i, tok in enumerate(tokens):
         nxt = tokens[i + 1] if i + 1 < len(tokens) else None
         prev = tokens[i - 1] if i > 0 else None
@@ -458,18 +576,20 @@ def _scan_tokens(rewriter: _Rewriter, stream: Any) -> None:
         ):
             rewriter._edit(tok.start, nxt.stop, "")
         elif tok.type == L.CHAR_STRING:
-            standard = _q_literal(tok.text or "")
-            if standard is not None:
-                rewriter._edit(tok.start, tok.stop, standard)
+            if tok.start not in folded_literals:
+                standard = _q_literal(tok.text or "")
+                if standard is not None:
+                    rewriter._edit(tok.start, tok.stop, standard)
         elif tok.type == L.DELIMITED_ID:
             folded = _fold_written(tok.text or "")
             if folded != (tok.text or ""):
                 rewriter._edit(tok.start, tok.stop, folded)
         elif tok.type in _CURSOR_ATTRIBUTES and (prev is None or prev.type != L.SQL):
-            rewriter.reasons.append(
-                "cursor attributes become the FOUND variable or GET"
-                f" DIAGNOSTICS; rewrite them by hand (line {tok.line})"
-            )
+            if not any(s <= tok.start <= e for s, e in rewriter.handled):
+                rewriter.reasons.append(
+                    "cursor attributes become the FOUND variable or GET"
+                    f" DIAGNOSTICS; rewrite them by hand (line {tok.line})"
+                )
         elif text == "SQLCODE":
             rewriter.reasons.append(
                 "SQLCODE becomes SQLSTATE with different values;"
