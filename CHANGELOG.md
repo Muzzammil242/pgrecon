@@ -2,7 +2,7 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## Unreleased
+## 0.1.5 - 2026-08-18
 
 - pgrecon convert begins: schema structure to PostgreSQL DDL, offline
   from the inventory's dictionary facts. Tables with a documented
