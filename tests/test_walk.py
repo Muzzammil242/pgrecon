@@ -249,13 +249,7 @@ def test_conditional_compilation_parses_with_both_branches_visible() -> None:
 
 
 def test_inquiry_directive_parses_as_expression() -> None:
-    unit = (
-        "PROCEDURE p IS\n"
-        "  v VARCHAR2(100);\n"
-        "BEGIN\n"
-        "  v := $$plsql_unit;\n"
-        "END;"
-    )
+    unit = "PROCEDURE p IS\n  v VARCHAR2(100);\nBEGIN\n  v := $$plsql_unit;\nEND;"
     analysis = analyze_source(unit)
     assert analysis.errors == ()
     cc = [f.line for f in analysis.features if f.feature == "conditional_compilation"]
