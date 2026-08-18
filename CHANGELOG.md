@@ -2,6 +2,20 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## Unreleased
+
+- Two more provable code rewrites: EXIT WHEN cursor%NOTFOUND directly
+  after a FETCH of the same cursor becomes EXIT WHEN NOT FOUND, which
+  is what plpgsql's FOUND reports at that point; and :name bind
+  placeholders inside EXECUTE IMMEDIATE literals fold to numbered
+  parameters when their count matches the USING arity, because Oracle
+  binds them by position exactly as PostgreSQL numbers them. OUT bind
+  arguments refuse; mismatched counts stay verbatim under the
+  existing verify-by-hand note.
+- Sized character declarations in code (VARCHAR2(200) and friends)
+  now map; the size pattern never matched type names containing a
+  digit, so they were refused as unsupported.
+
 ## 0.2.0 - 2026-08-19
 
 - The converter grows a code lane: standalone functions and

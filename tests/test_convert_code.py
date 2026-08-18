@@ -114,6 +114,49 @@ BEGIN
   NULL;
 END rowbad_p;"""
 
+FETCH_LOOP_P = """PROCEDURE fetch_loop_p IS
+  CURSOR c IS SELECT fee FROM t_fees;
+  v NUMBER;
+BEGIN
+  OPEN c;
+  LOOP
+    FETCH c INTO v;
+    EXIT WHEN c%NOTFOUND;
+  END LOOP;
+  CLOSE c;
+END fetch_loop_p;"""
+
+FETCH_GAP_P = """PROCEDURE fetch_gap_p IS
+  CURSOR c IS SELECT fee FROM t_fees;
+  v NUMBER;
+  n NUMBER := 0;
+BEGIN
+  OPEN c;
+  LOOP
+    FETCH c INTO v;
+    n := n + 1;
+    EXIT WHEN c%NOTFOUND;
+  END LOOP;
+  CLOSE c;
+END fetch_gap_p;"""
+
+BINDS_P = """PROCEDURE binds_p(p NUMBER) IS
+BEGIN
+  EXECUTE IMMEDIATE 'update t_fees set fee = :a where fee < :b'
+    USING p, p;
+END binds_p;"""
+
+BINDS_LOOSE_P = """PROCEDURE binds_loose_p(p VARCHAR2) IS
+  v VARCHAR2(200) := 'delete from t_fees where kind = :k';
+BEGIN
+  EXECUTE IMMEDIATE v USING p;
+END binds_loose_p;"""
+
+BINDS_OUT_P = """PROCEDURE binds_out_p(p IN OUT NUMBER) IS
+BEGIN
+  EXECUTE IMMEDIATE 'begin :x := 1; end;' USING OUT p;
+END binds_out_p;"""
+
 _UNITS = [
     ("FEE_FOR", "FUNCTION", FEE_FOR),
     ("AUTON_P", "PROCEDURE", AUTON_P),
@@ -129,6 +172,11 @@ _UNITS = [
     ("INOUT_P", "PROCEDURE", INOUT_P),
     ("ROWTYPE_P", "PROCEDURE", ROWTYPE_P),
     ("ROWBAD_P", "PROCEDURE", ROWBAD_P),
+    ("FETCH_LOOP_P", "PROCEDURE", FETCH_LOOP_P),
+    ("FETCH_GAP_P", "PROCEDURE", FETCH_GAP_P),
+    ("BINDS_P", "PROCEDURE", BINDS_P),
+    ("BINDS_LOOSE_P", "PROCEDURE", BINDS_LOOSE_P),
+    ("BINDS_OUT_P", "PROCEDURE", BINDS_OUT_P),
 ]
 
 
@@ -262,8 +310,24 @@ def test_refusal_cascades_to_callers(code_db: Path) -> None:
 
 def test_routine_count_matches_emitted(code_db: Path) -> None:
     result = convert_schema(code_db)
-    assert result.routines == 4
-    assert result.sql.count("LANGUAGE plpgsql") == 4
+    assert result.routines == 7
+    assert result.sql.count("LANGUAGE plpgsql") == 7
+
+
+def test_adjacent_fetch_notfound_translates(code_db: Path) -> None:
+    result = convert_schema(code_db)
+    assert "EXIT WHEN NOT FOUND;" in result.sql
+    assert "%NOTFOUND" not in result.sql
+    assert "cursor attributes" in _residue_reason(result, "FETCH_GAP_P")
+
+
+def test_dynamic_binds_fold_only_when_arity_matches(code_db: Path) -> None:
+    result = convert_schema(code_db)
+    assert "fee = $1 where fee < $2" in result.sql
+    assert ":a" not in result.sql
+    assert ":k" in result.sql
+    assert "v varchar(200)" in result.sql
+    assert "OUT bind" in _residue_reason(result, "BINDS_OUT_P")
 
 
 def test_cursor_rowtype_becomes_record(code_db: Path) -> None:
