@@ -1,7 +1,7 @@
 [project]
 name = "pgrecon"
-version = "0.1.5"
-description = "Migration reconnaissance for PostgreSQL: inventory and assess Oracle databases before the move."
+version = "0.2.0"
+description = "Migration reconnaissance for PostgreSQL: inventory, assess, and convert Oracle databases before the move."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"

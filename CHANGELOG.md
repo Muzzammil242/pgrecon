@@ -2,7 +2,7 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## Unreleased
+## 0.2.0 - 2026-08-19
 
 - The converter grows a code lane: standalone functions and
   procedures whose every construct is provably equivalent convert
