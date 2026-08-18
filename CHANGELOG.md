@@ -2,7 +2,7 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## 0.1.5 - 2026-08-18
+## Unreleased
 
 - pgrecon convert begins: schema structure to PostgreSQL DDL, offline
   from the inventory's dictionary facts. Tables with a documented
@@ -19,6 +19,9 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   that table's whole child set with a named reason; interval-driven
   creation carries a note pointing at scheduled creation such as
   pg_partman.
+
+## 0.1.5 - 2026-08-18
+
 - Conditional compilation is handled and flagged (R-SRC-21): $IF
   directives are blanked before parsing so every branch's code stays
   analyzed, inquiry references such as $$plsql_unit parse as
