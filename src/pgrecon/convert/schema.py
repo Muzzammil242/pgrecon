@@ -15,6 +15,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from pgrecon.convert.code import _emit_code
 from pgrecon.convert.constraints import _emit_checks, _emit_foreign_keys, _emit_keys
 from pgrecon.convert.extras import _emit_db_links, _emit_sequences, _emit_synonyms
 from pgrecon.convert.identifiers import ident as ident
@@ -36,6 +37,7 @@ class Conversion:
     sequences: int
     synonyms: int
     db_links: int
+    routines: int
 
 
 def convert_schema(db: Path) -> Conversion:
@@ -66,7 +68,7 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
 
     # Sequences first: column defaults may call nextval on them, and
     # PostgreSQL resolves that at CREATE TABLE time.
-    sequence_count = _emit_sequences(conn, out, residue)
+    sequence_count, sequence_names = _emit_sequences(conn, out, residue)
 
     table_count, partition_count = emit_tables(conn, out, residue, emitted, dropped)
 
@@ -75,7 +77,12 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
     constraint_count += _emit_foreign_keys(conn, out, residue, emitted)
     index_count = _emit_indexes(conn, out, residue, emitted)
     view_count, created_views = _emit_views(conn, out, residue, emitted, dropped)
-    synonym_count = _emit_synonyms(conn, out, residue, emitted, created_views)
+    synonym_count, synonym_names = _emit_synonyms(
+        conn, out, residue, emitted, created_views
+    )
+    routine_count = _emit_code(
+        conn, out, residue, emitted, created_views, sequence_names, synonym_names
+    )
     link_count = _emit_db_links(conn, out, residue)
 
     return Conversion(
@@ -89,6 +96,7 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
         sequence_count,
         synonym_count,
         link_count,
+        routine_count,
     )
 
 

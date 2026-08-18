@@ -300,7 +300,8 @@ def convert(
         f"Wrote {out} ({result.tables} tables, {result.partitions} partition"
         f" children, {result.constraints} constraints, {result.indexes} indexes,"
         f" {result.views} views, {result.sequences} sequences,"
-        f" {result.synonyms} synonyms, {result.db_links} db links)"
+        f" {result.synonyms} synonyms, {result.db_links} db links,"
+        f" {result.routines} routines)"
     )
     typer.echo(f"Wrote {residue} ({len(result.residue)} residue items)")
 

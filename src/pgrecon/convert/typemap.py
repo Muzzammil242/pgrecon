@@ -100,3 +100,51 @@ def map_type(
         return Mapped(None, "spatial columns need PostGIS and a dedicated migration")
 
     return Mapped(None, f"user-defined or unsupported type {dtype or '(unknown)'}")
+
+
+_SIZED = re.compile(
+    r"^([A-Z_ ]+?)\s*\(\s*(\d+)\s*(?:(CHAR|BYTE)\s*)?(?:,\s*(-?\d+)\s*)?\)$"
+)
+
+# PL/SQL-only scalar types on top of the column map. SIMPLE_INTEGER
+# wraps on overflow and NATURAL/POSITIVE carry range constraints, so
+# they are absent: losing those semantics silently is not a mapping.
+_CODE_TYPES = {
+    "PLS_INTEGER": "integer",
+    "BINARY_INTEGER": "integer",
+    "BOOLEAN": "boolean",
+    "STRING": "varchar",
+    "REAL": "double precision",
+    "DOUBLE PRECISION": "double precision",
+    "TIMESTAMP": "timestamp",
+}
+
+
+def map_code_type(text: str) -> Mapped:
+    """A type as written in PL/SQL source to PostgreSQL.
+
+    Source text carries forms the dictionary never shows - bare
+    NUMBER, PLS_INTEGER, VARCHAR2(30 CHAR) - so this normalizes the
+    spelling and reuses the column rules for everything they cover.
+    """
+    dtype = " ".join(text.strip().upper().split())
+    if dtype in _CODE_TYPES:
+        return Mapped(_CODE_TYPES[dtype])
+    if dtype.startswith("INTERVAL"):
+        return Mapped("interval", "interval precision constraints are not carried over")
+    base, length, precision, scale = dtype, None, None, None
+    m = _SIZED.match(dtype)
+    if m:
+        base = m.group(1).strip()
+        if base in ("NUMBER", "DECIMAL", "NUMERIC", "FLOAT"):
+            precision = int(m.group(2))
+            scale = int(m.group(4)) if m.group(4) else None
+        else:
+            length = int(m.group(2))
+    if base in ("DECIMAL", "NUMERIC"):
+        base = "NUMBER"
+    if base in ("INT", "INTEGER", "SMALLINT"):
+        # ANSI aliases are unconstrained NUMBER(*,0) underneath; the
+        # honest mapping is numeric, not a range-limited integer.
+        return Mapped("numeric")
+    return map_type(base, length, precision, scale)

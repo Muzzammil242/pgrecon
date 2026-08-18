@@ -12,12 +12,14 @@ _PG_BIGINT_MAX = 9223372036854775807
 
 def _emit_sequences(
     conn: sqlite3.Connection, out: list[str], residue: list[Residue]
-) -> int:
+) -> tuple[int, set[str]]:
     """Sequences restarted at their extracted position.
 
     Oracle bounds reach 1e28; a bound past bigint is treated as
     unbounded rather than declined, because that is what it means in
-    practice. Anything else non-numeric declines.
+    practice. Anything else non-numeric declines. Returns the count
+    and the emitted names, which the code lane validates NEXTVAL
+    references against.
     """
     rows = conn.execute(
         "SELECT owner, sequence_name, min_value, max_value, increment_by,"
@@ -25,6 +27,7 @@ def _emit_sequences(
         " ORDER BY owner, sequence_name"
     ).fetchall()
     count = 0
+    created: set[str] = set()
     for r in rows:
         fields = {
             k: (r[k] or "").strip()
@@ -66,10 +69,11 @@ def _emit_sequences(
         if (r["cycle_flag"] or "N") == "Y":
             parts.append("CYCLE")
         out.append(" ".join(parts) + ";")
+        created.add((r["sequence_name"] or "").upper())
         count += 1
     if count:
         out.append("")
-    return count
+    return count, created
 
 
 def _emit_synonyms(
@@ -78,7 +82,7 @@ def _emit_synonyms(
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
     created_views: set[str],
-) -> int:
+) -> tuple[int, set[str]]:
     """Schema-local synonyms over converted relations become views.
 
     A simple SELECT * view is updatable on PostgreSQL, which is as
@@ -92,6 +96,7 @@ def _emit_synonyms(
     ).fetchall()
     known = {t for (_, t) in emitted} | created_views
     count = 0
+    created: set[str] = set()
     for r in rows:
         if r["db_link"]:
             residue.append(
@@ -130,10 +135,11 @@ def _emit_synonyms(
             f"CREATE OR REPLACE VIEW {ident(r['synonym_name'])}"
             f" AS SELECT * FROM {ident(r['table_name'])};"
         )
+        created.add((r["synonym_name"] or "").upper())
         count += 1
     if count:
         out.append("")
-    return count
+    return count, created
 
 
 def _emit_db_links(
