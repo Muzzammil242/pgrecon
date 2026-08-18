@@ -115,7 +115,7 @@ def map_type(
 
 
 _SIZED = re.compile(
-    r"^([A-Z_ ]+?)\s*\(\s*(\d+)\s*(?:(CHAR|BYTE)\s*)?(?:,\s*(-?\d+)\s*)?\)$"
+    r"^([A-Z][A-Z_0-9 ]*?)\s*\(\s*(\d+)\s*(?:(CHAR|BYTE)\s*)?(?:,\s*(-?\d+)\s*)?\)$"
 )
 
 # PL/SQL-only scalar types on top of the column map. SIMPLE_INTEGER
