@@ -16,7 +16,13 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+import sqlglot
+from sqlglot import Expr, exp
+from sqlglot.errors import ErrorLevel, SqlglotError
+from sqlglot.transforms import eliminate_join_marks
+
 from pgrecon.convert.typemap import map_type
+from pgrecon.inventory.loader import PARSE_NORMALIZATIONS
 
 _PLAIN_IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
 
@@ -120,6 +126,8 @@ class Conversion:
     residue: tuple[Residue, ...]
     tables: int
     constraints: int
+    indexes: int
+    views: int
 
 
 def ident(name: str) -> str:
@@ -253,8 +261,17 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
     constraint_count += _emit_keys(conn, out, residue)
     constraint_count += _emit_checks(conn, out, residue)
     constraint_count += _emit_foreign_keys(conn, out, residue)
+    index_count = _emit_indexes(conn, out, residue)
+    view_count = _emit_views(conn, out, residue)
 
-    return Conversion("\n".join(out), tuple(residue), table_count, constraint_count)
+    return Conversion(
+        "\n".join(out),
+        tuple(residue),
+        table_count,
+        constraint_count,
+        index_count,
+        view_count,
+    )
 
 
 def _constraint_columns(conn: sqlite3.Connection, owner: str, name: str) -> list[str]:
@@ -375,6 +392,214 @@ def _emit_foreign_keys(
         )
         count += 1
     if rows:
+        out.append("")
+    return count
+
+
+def _emit_indexes(
+    conn: sqlite3.Connection, out: list[str], residue: list[Residue]
+) -> int:
+    """Secondary indexes; constraint-backed and generated ones are the
+    constraints' business and never emitted twice."""
+    count = 0
+    rows = conn.execute(
+        "SELECT i.owner, i.index_name, i.table_name, i.index_type, i.uniqueness"
+        " FROM indexes i"
+        " WHERE COALESCE(i.generated, 'N') <> 'Y'"
+        " AND NOT EXISTS (SELECT 1 FROM constraints c"
+        "   WHERE c.owner = i.owner AND c.constraint_name = i.index_name)"
+        " ORDER BY i.owner, i.table_name, i.index_name",
+    ).fetchall()
+    emitted = False
+    for r in rows:
+        itype = (r["index_type"] or "NORMAL").upper()
+        if itype not in ("NORMAL", "FUNCTION-BASED NORMAL", "BITMAP"):
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["index_name"],
+                    "index",
+                    f"{itype} indexes have no direct counterpart",
+                )
+            )
+            continue
+        cols = conn.execute(
+            "SELECT column_name, position FROM index_columns"
+            " WHERE owner = ? AND index_name = ? ORDER BY position",
+            (r["owner"], r["index_name"]),
+        ).fetchall()
+        exprs = {
+            e["position"]: (e["expression"], e["truncated"])
+            for e in conn.execute(
+                "SELECT position, expression, truncated FROM index_expressions"
+                " WHERE owner = ? AND index_name = ?",
+                (r["owner"], r["index_name"]),
+            )
+        }
+        parts: list[str] = []
+        skip_reason: str | None = None
+        for c in cols:
+            expression, truncated = exprs.get(c["position"], (None, 0))
+            if expression:
+                if truncated:
+                    skip_reason = (
+                        "index expression was truncated during extraction;"
+                        " recreate it from the source"
+                    )
+                    break
+                parts.append(f"({expression})")
+            elif (c["column_name"] or "").upper().startswith("SYS_NC"):
+                skip_reason = (
+                    "hidden function-based column without its expression;"
+                    " recreate the index from the source"
+                )
+                break
+            else:
+                parts.append(ident(c["column_name"]))
+        if skip_reason is not None or not parts:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["index_name"],
+                    "index",
+                    skip_reason or "no column facts",
+                )
+            )
+            continue
+        if itype == "BITMAP":
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["index_name"],
+                    "note",
+                    "bitmap index emitted as btree; evaluate btree_gin for"
+                    " low-cardinality columns",
+                )
+            )
+        locality = conn.execute(
+            "SELECT locality FROM part_indexes WHERE owner = ? AND index_name = ?",
+            (r["owner"], r["index_name"]),
+        ).fetchone()
+        if locality is not None and (locality["locality"] or "").upper() == "GLOBAL":
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["index_name"],
+                    "note",
+                    "GLOBAL partitioned index becomes per-partition on"
+                    " PostgreSQL; uniqueness across partitions needs the"
+                    " partition key in the index",
+                )
+            )
+        unique = "UNIQUE " if (r["uniqueness"] or "").upper() == "UNIQUE" else ""
+        out.append(
+            f"CREATE {unique}INDEX {ident(r['index_name'])}"
+            f" ON {ident(r['table_name'])} ({', '.join(parts)});"
+        )
+        emitted = True
+        count += 1
+    if emitted:
+        out.append("")
+    return count
+
+
+_VIEW_HEADER_NOISE = re.compile(
+    r"\b(FORCE|EDITIONABLE|NONEDITIONABLE)\s+", re.IGNORECASE
+)
+
+
+def _fold_identifiers(tree: Expr) -> Expr:
+    """Lowercase and unquote identifiers; drop schema qualifiers.
+
+    DBMS_METADATA quotes every identifier in uppercase; carried as-is
+    the view would reference "EMP" while the converted table is emp.
+    Single-schema conversion also drops the owner prefix.
+    """
+    for node in tree.walk():
+        if isinstance(node, exp.Identifier):
+            node.set("this", node.name.lower())
+            node.set("quoted", not _PLAIN_IDENT.match(node.name.lower()))
+        if isinstance(node, exp.Table | exp.Column) and node.args.get("db"):
+            node.set("db", None)
+    return tree
+
+
+def _emit_views(
+    conn: sqlite3.Connection, out: list[str], residue: list[Residue]
+) -> int:
+    """Views via transpile of the stored DDL, in dependency order."""
+    rows = conn.execute(
+        "SELECT owner, name, ddl FROM ddl WHERE type = 'VIEW' ORDER BY name"
+    ).fetchall()
+    if not rows:
+        return 0
+    names = {r["name"] for r in rows}
+    edges: dict[str, set[str]] = {r["name"]: set() for r in rows}
+    for d in conn.execute(
+        "SELECT name, ref_name FROM dependencies"
+        " WHERE type = 'VIEW' AND ref_type = 'VIEW'"
+    ):
+        if d["name"] in names and d["ref_name"] in names:
+            edges[d["name"]].add(d["ref_name"])
+    ordered: list[str] = []
+    while edges:
+        ready = sorted(n for n, deps in edges.items() if not deps - set(ordered))
+        if not ready:
+            ordered.extend(sorted(edges))
+            break
+        ordered.extend(ready)
+        for n in ready:
+            edges.pop(n)
+    by_name = {r["name"]: r for r in rows}
+
+    count = 0
+    emitted = False
+    for name in ordered:
+        r = by_name[name]
+        text = _VIEW_HEADER_NOISE.sub("", r["ddl"] or "")
+        for pattern, replacement in PARSE_NORMALIZATIONS:
+            text = pattern.sub(replacement, text)
+        try:
+            parsed = sqlglot.parse(text, dialect="oracle")
+            tree = parsed[0] if parsed else None
+            if tree is None:
+                raise SqlglotError("statement did not parse")
+            # The generator passes some Oracle-only constructs through
+            # verbatim instead of flagging them; wrong DDL must become
+            # residue, never output, so the tree is checked explicitly.
+            if tree.find(exp.Connect) is not None:
+                residue.append(
+                    Residue(
+                        r["owner"],
+                        name,
+                        "view",
+                        "needs a manual rewrite: CONNECT BY becomes a"
+                        " WITH RECURSIVE query",
+                    )
+                )
+                continue
+            # Oracle (+) outer joins become ANSI joins; the rule is a
+            # no-op on queries without join marks.
+            tree = eliminate_join_marks(tree)
+            statement = _fold_identifiers(tree).sql(
+                dialect="postgres", unsupported_level=ErrorLevel.RAISE, pretty=True
+            )
+        except SqlglotError as exc:
+            reason = str(exc).splitlines()[0][:140]
+            residue.append(
+                Residue(
+                    r["owner"],
+                    name,
+                    "view",
+                    f"needs a manual rewrite: {reason}",
+                )
+            )
+            continue
+        out.append(statement + ";")
+        out.append("")
+        emitted = True
+        count += 1
+    if emitted and out and out[-1] != "":
         out.append("")
     return count
 

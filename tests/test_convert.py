@@ -90,6 +90,32 @@ def facts_db(tmp_path: Path) -> Path:
         INSERT INTO check_conditions (owner, constraint_name, condition, truncated)
           VALUES ('HR', 'EMP_SAL_CK', 'SALARY > 0', 0),
                  ('HR', 'EMP_ID_NN', '"EMP_ID" IS NOT NULL', 0);
+        INSERT INTO indexes
+          (owner, index_name, table_name, index_type, uniqueness, generated) VALUES
+          ('HR', 'EMP_NAME_IX', 'EMP', 'NORMAL', 'NONUNIQUE', 'N'),
+          ('HR', 'EMP_UPPER_IX', 'EMP', 'FUNCTION-BASED NORMAL', 'NONUNIQUE', 'N'),
+          ('HR', 'DEPT_PK', 'DEPT', 'NORMAL', 'UNIQUE', 'Y'),
+          ('HR', 'SCANS_LOB_IX', 'SCANS', 'LOB', 'NONUNIQUE', 'N');
+        INSERT INTO index_columns (owner, index_name, column_name, position) VALUES
+          ('HR', 'EMP_NAME_IX', 'ENAME', 1),
+          ('HR', 'EMP_UPPER_IX', 'SYS_NC00009$', 1),
+          ('HR', 'DEPT_PK', 'DEPT_ID', 1);
+        INSERT INTO index_expressions
+          (owner, index_name, position, expression, truncated)
+          VALUES ('HR', 'EMP_UPPER_IX', 1, 'UPPER(ename)', 0);
+        INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality) VALUES
+          ('HR', 'V_STAFF', 'VIEW',
+           'CREATE OR REPLACE FORCE EDITIONABLE VIEW "HR"."V_STAFF"'
+           || ' ("EMP_ID", "NAME") AS SELECT "EMP_ID", "ENAME"'
+           || ' FROM "HR"."EMP" WHERE "SALARY" > 0', 1, 'full'),
+          ('HR', 'V_TREE', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_TREE" AS SELECT "EMP_ID"'
+           || ' FROM "HR"."EMP" CONNECT BY PRIOR "EMP_ID" = "DEPT_ID"',
+           1, 'full'),
+          ('HR', 'V_OLDJOIN', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_OLDJOIN" AS'
+           || ' SELECT e."ENAME", d."NAME" FROM "HR"."EMP" e, "HR"."DEPT" d'
+           || ' WHERE e."DEPT_ID" = d."DEPT_ID" (+)', 1, 'full');
         """
     )
     conn.commit()
@@ -137,3 +163,40 @@ def test_residue_report_readable(facts_db: Path) -> None:
     text = residue_report(convert_schema(facts_db).residue)
     assert "SCANS.DOC" in text
     assert "human decision" in text
+
+
+def test_indexes_emit_and_skip_correctly(facts_db: Path) -> None:
+    result = convert_schema(facts_db)
+    sql = result.sql
+    assert "CREATE INDEX emp_name_ix ON emp (ename);" in sql
+    assert "CREATE INDEX emp_upper_ix ON emp ((UPPER(ename)));" in sql
+    # The constraint-backed index and the LOB index never appear.
+    assert "CREATE UNIQUE INDEX dept_pk" not in sql
+    assert "scans_lob_ix" not in sql.lower()
+    kinds = {(r.kind, r.object_name) for r in result.residue}
+    assert ("index", "SCANS_LOB_IX") in kinds
+    assert result.indexes == 2
+
+
+def test_plain_view_transpiles_with_folded_identifiers(facts_db: Path) -> None:
+    result = convert_schema(facts_db)
+    sql = result.sql
+    assert "CREATE OR REPLACE VIEW v_staff" in sql
+    assert '"HR"' not in sql
+    assert "FROM emp" in sql
+
+
+def test_connect_by_view_becomes_residue(facts_db: Path) -> None:
+    result = convert_schema(facts_db)
+    tree = [r for r in result.residue if r.object_name == "V_TREE"]
+    assert len(tree) == 1
+    assert tree[0].kind == "view"
+    assert "rewrite" in tree[0].reason
+
+
+def test_plus_join_view_becomes_ansi_join(facts_db: Path) -> None:
+    result = convert_schema(facts_db)
+    assert "v_oldjoin" in result.sql
+    assert "(+)" not in result.sql
+    assert "LEFT" in result.sql
+    assert result.views == 2
