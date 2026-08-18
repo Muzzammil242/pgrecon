@@ -111,7 +111,7 @@ variant for you.
 
 ## What it checks
 
-63 rules at present, each shipping with fixture tests:
+64 rules at present, each shipping with fixture tests:
 
 | Category        | Rules | Among them |
 | --------------- | ----- | ---------- |

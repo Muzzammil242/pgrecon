@@ -2,7 +2,7 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## Unreleased
+## 0.1.5 - 2026-08-18
 
 - Conditional compilation is handled and flagged (R-SRC-21): $IF
   directives are blanked before parsing so every branch's code stays
