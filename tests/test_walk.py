@@ -225,3 +225,103 @@ def test_unevolved_type_gains_no_evolution_feature() -> None:
     analysis = analyze_source(unit, "TYPE")
     assert analysis.errors == ()
     assert all(f.feature != "type_evolution" for f in analysis.features)
+
+
+def test_conditional_compilation_parses_with_both_branches_visible() -> None:
+    unit = (
+        "PACKAGE BODY cc_pkg AS\n"
+        "  PROCEDURE log_it(p_text VARCHAR2) IS\n"
+        "  BEGIN\n"
+        "$IF $$cc_debug $THEN\n"
+        "    DBMS_OUTPUT.PUT_LINE(p_text || TO_CHAR(SYSDATE));\n"
+        "$ELSE\n"
+        "    COMMIT;\n"
+        "$END\n"
+        "  END;\n"
+        "END cc_pkg;"
+    )
+    analysis = analyze_source(unit, "PACKAGE BODY")
+    assert analysis.errors == ()
+    found = {f.feature for f in analysis.features}
+    assert {"conditional_compilation", "sysdate", "commit"} <= found
+    cc = [f.line for f in analysis.features if f.feature == "conditional_compilation"]
+    assert cc == [4]
+
+
+def test_inquiry_directive_parses_as_expression() -> None:
+    unit = "PROCEDURE p IS\n  v VARCHAR2(100);\nBEGIN\n  v := $$plsql_unit;\nEND;"
+    analysis = analyze_source(unit)
+    assert analysis.errors == ()
+    cc = [f.line for f in analysis.features if f.feature == "conditional_compilation"]
+    assert cc == [4]
+
+
+def test_plain_unit_gains_no_conditional_compilation_feature() -> None:
+    unit = "PROCEDURE p IS\nBEGIN\n  NULL;\nEND;"
+    analysis = analyze_source(unit)
+    assert analysis.errors == ()
+    assert all(f.feature != "conditional_compilation" for f in analysis.features)
+
+
+def test_type_method_default_parameters_parse() -> None:
+    # Method parameters with DEFAULT values are legal Oracle that the
+    # vendored grammar predates; the retry blanks the defaults and the
+    # declaration parses. Found by feeding pljson through the tool.
+    unit = (
+        "TYPE json_like AS OBJECT (\n"
+        "  val NUMBER,\n"
+        "  MEMBER FUNCTION get_string(\n"
+        "    max_byte_size NUMBER DEFAULT NULL,\n"
+        "    max_char_size NUMBER DEFAULT NULL\n"
+        "  ) RETURN VARCHAR2\n"
+        ")"
+    )
+    analysis = analyze_source(unit, "TYPE")
+    assert analysis.errors == ()
+
+
+def test_dollar_identifiers_are_not_directives() -> None:
+    # Oracle names may contain $: EVENT$END must survive untouched,
+    # and a unit using such names gains no conditional-compilation
+    # feature.
+    unit = (
+        "PROCEDURE p IS\n"
+        "  v NUMBER;\n"
+        "BEGIN\n"
+        "  SELECT COUNT(*) INTO v FROM event$end;\n"
+        "  UPDATE aq$if_map SET state = 1 WHERE id = v;\n"
+        "END;"
+    )
+    analysis = analyze_source(unit)
+    assert analysis.errors == ()
+    assert all(f.feature != "conditional_compilation" for f in analysis.features)
+
+
+def test_type_with_oid_clause_parses() -> None:
+    # DBMS_METADATA and the Oracle sample schemas emit OID identity
+    # clauses on portable types; the grammar predates them.
+    unit = (
+        "TYPE header_t\n"
+        "  OID '82A4AF6A4CCE656DE034080020E0EE3D'\n"
+        "  AS OBJECT\n"
+        "    ( header_name VARCHAR2(256)\n"
+        "    , logo BLOB\n"
+        "    )"
+    )
+    analysis = analyze_source(unit, "TYPE")
+    assert analysis.errors == ()
+
+
+def test_type_body_with_default_parameter_parses() -> None:
+    unit = (
+        "TYPE BODY json_like AS\n"
+        "  MEMBER FUNCTION get_string(\n"
+        "    max_byte_size NUMBER DEFAULT NULL\n"
+        "  ) RETURN VARCHAR2 IS\n"
+        "  BEGIN\n"
+        "    RETURN 'x';\n"
+        "  END;\n"
+        "END;"
+    )
+    analysis = analyze_source(unit, "TYPE BODY")
+    assert analysis.errors == ()

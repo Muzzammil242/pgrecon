@@ -261,6 +261,26 @@ RULES = [
         ),
     ),
     Rule(
+        id="R-SRC-21",
+        title="Conditional compilation",
+        category="plsql",
+        severity=Severity.MEDIUM,
+        effort=1.5,
+        remedy=(
+            "PL/pgSQL has no conditional compilation. Each $IF selects"
+            " code at compile time by database version or flag; the"
+            " port must choose one branch per site or move the choice"
+            " to runtime configuration. Both branches were analyzed."
+        ),
+        detector=sql_detector(
+            feature_grep(
+                ("conditional_compilation",),
+                "UPPER(s.text) LIKE '%$IF%' OR UPPER(s.text) LIKE '%$END%'",
+                "conditional compilation directive",
+            )
+        ),
+    ),
+    Rule(
         id="R-SRC-20",
         title="Wrapped PL/SQL",
         category="plsql",

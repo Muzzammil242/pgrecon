@@ -38,6 +38,10 @@ def check_message(text: str) -> list[str]:
     subject = lines[0].rstrip()
     if subject.startswith(("fixup!", "squash!")):
         return []
+    if subject.startswith("Merge "):
+        # Merge commits, including the synthetic one GitHub builds for
+        # a pull request's CI run, follow git's own subject shape.
+        return []
 
     if len(subject) > SUBJECT_LIMIT:
         errors.append(f"subject exceeds {SUBJECT_LIMIT} characters")
