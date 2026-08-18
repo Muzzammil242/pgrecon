@@ -200,3 +200,120 @@ def test_plus_join_view_becomes_ansi_join(facts_db: Path) -> None:
     assert "(+)" not in result.sql
     assert "LEFT" in result.sql
     assert result.views == 2
+
+
+@pytest.fixture()
+def parts_db(tmp_path: Path) -> Path:
+    db = tmp_path / "parts.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary) VALUES
+          ('HR', 'SALES', 'N'), ('HR', 'REGIONS', 'N'),
+          ('HR', 'EVENTS', 'N'), ('HR', 'LH', 'N'), ('HR', 'BROKEN', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'SALES', 'SOLD_AT', 1, 'DATE', 7, NULL, NULL, 'N'),
+          ('HR', 'REGIONS', 'CODE', 1, 'VARCHAR2', 4, NULL, NULL, 'N'),
+          ('HR', 'EVENTS', 'EVT_ID', 1, 'NUMBER', 22, 10, 0, 'N'),
+          ('HR', 'LH', 'CODE', 1, 'VARCHAR2', 4, NULL, NULL, 'N'),
+          ('HR', 'LH', 'ID', 2, 'NUMBER', 22, 10, 0, 'N'),
+          ('HR', 'BROKEN', 'X', 1, 'NUMBER', 22, 10, 0, 'N');
+        INSERT INTO part_tables
+          (owner, table_name, partitioning_type, subpartitioning_type,
+           partition_count, interval) VALUES
+          ('HR', 'SALES', 'RANGE', 'NONE', 2, NULL),
+          ('HR', 'REGIONS', 'LIST', 'NONE', 2, NULL),
+          ('HR', 'EVENTS', 'HASH', 'NONE', 2, NULL),
+          ('HR', 'LH', 'LIST', 'HASH', 2, NULL),
+          ('HR', 'BROKEN', 'RANGE', 'NONE', 1, NULL);
+        INSERT INTO part_key_columns (owner, table_name, column_name, position)
+          VALUES ('HR', 'SALES', 'SOLD_AT', 1), ('HR', 'REGIONS', 'CODE', 1),
+                 ('HR', 'EVENTS', 'EVT_ID', 1), ('HR', 'LH', 'CODE', 1),
+                 ('HR', 'BROKEN', 'X', 1);
+        INSERT INTO part_subkey_columns (owner, table_name, column_name, position)
+          VALUES ('HR', 'LH', 'ID', 1);
+        INSERT INTO part_partitions
+          (owner, table_name, partition_name, position, high_value, truncated)
+          VALUES
+          ('HR', 'SALES', 'P2021', 1,
+           'TO_DATE('' 2021-01-01 00:00:00'', ''SYYYY-MM-DD HH24:MI:SS'','
+           || ' ''NLS_CALENDAR=GREGORIAN'')', 0),
+          ('HR', 'SALES', 'PMAX', 2, 'MAXVALUE', 0),
+          ('HR', 'REGIONS', 'P_EU', 1, '''DE'', ''FR''', 0),
+          ('HR', 'REGIONS', 'P_REST', 2, 'DEFAULT', 0),
+          ('HR', 'EVENTS', 'H1', 1, NULL, 0),
+          ('HR', 'EVENTS', 'H2', 2, NULL, 0),
+          ('HR', 'LH', 'PART_AA', 1, '''AA''', 0),
+          ('HR', 'LH', 'PART_BB', 2, '''BB''', 0),
+          ('HR', 'BROKEN', 'P1', 1, 'TO_DATE(SYSDATE)', 0);
+        INSERT INTO part_subpartitions
+          (owner, table_name, partition_name, subpartition_name, position,
+           high_value, truncated) VALUES
+          ('HR', 'LH', 'PART_AA', 'SP1', 1, NULL, 0),
+          ('HR', 'LH', 'PART_AA', 'SP2', 2, NULL, 0),
+          ('HR', 'LH', 'PART_BB', 'SP1', 1, NULL, 0),
+          ('HR', 'LH', 'PART_BB', 'SP2', 2, NULL, 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    return db
+
+
+def test_range_children_with_maxvalue(parts_db: Path) -> None:
+    result = convert_schema(parts_db)
+    sql = result.sql
+    assert (
+        "CREATE TABLE sales_p2021 PARTITION OF sales"
+        " FOR VALUES FROM (MINVALUE) TO ('2021-01-01 00:00:00');" in sql
+    )
+    assert (
+        "CREATE TABLE sales_pmax PARTITION OF sales"
+        " FOR VALUES FROM ('2021-01-01 00:00:00') TO (MAXVALUE);" in sql
+    )
+
+
+def test_list_children_with_default_partition(parts_db: Path) -> None:
+    sql = convert_schema(parts_db).sql
+    assert (
+        "CREATE TABLE regions_p_eu PARTITION OF regions"
+        " FOR VALUES IN ('DE', 'FR');" in sql
+    )
+    assert "CREATE TABLE regions_p_rest PARTITION OF regions DEFAULT;" in sql
+
+
+def test_hash_children_use_modulus(parts_db: Path) -> None:
+    sql = convert_schema(parts_db).sql
+    assert (
+        "CREATE TABLE events_h1 PARTITION OF events"
+        " FOR VALUES WITH (MODULUS 2, REMAINDER 0);" in sql
+    )
+    assert (
+        "CREATE TABLE events_h2 PARTITION OF events"
+        " FOR VALUES WITH (MODULUS 2, REMAINDER 1);" in sql
+    )
+
+
+def test_composite_list_hash_children(parts_db: Path) -> None:
+    sql = convert_schema(parts_db).sql
+    assert (
+        "CREATE TABLE lh_part_aa PARTITION OF lh"
+        " FOR VALUES IN ('AA') PARTITION BY HASH (id);" in sql
+    )
+    assert (
+        "CREATE TABLE lh_part_aa_sp1 PARTITION OF lh_part_aa"
+        " FOR VALUES WITH (MODULUS 2, REMAINDER 0);" in sql
+    )
+
+
+def test_unconvertible_bound_omits_all_children(parts_db: Path) -> None:
+    result = convert_schema(parts_db)
+    assert "broken_p1" not in result.sql
+    reasons = [
+        r.reason
+        for r in result.residue
+        if r.object_name == "BROKEN" and r.kind == "partitioning"
+    ]
+    assert reasons and "children omitted" in reasons[0]

@@ -225,6 +225,14 @@ SELECT owner, name, column_name, column_position
  ORDER BY name, column_position;
 SPOOL OFF
 
+SPOOL part_subkey_columns.csv
+SELECT owner, name, column_name, column_position
+  FROM all_subpart_key_columns
+ WHERE owner = UPPER('&schema')
+   AND object_type = 'TABLE'
+ ORDER BY name, column_position;
+SPOOL OFF
+
 SPOOL synonyms.csv
 SELECT owner, synonym_name, table_owner, table_name, db_link
   FROM all_synonyms
@@ -397,6 +405,64 @@ BEGIN
             DBMS_OUTPUT.PUT_LINE('"' || c.owner || '","'
                 || c.constraint_name || '","' || l_cond || '",'
                 || CASE WHEN LENGTH(l_cond) >= 2000 THEN 1 ELSE 0 END);
+        END;
+    END LOOP;
+END;
+/
+SPOOL OFF
+
+-- Partition bounds: HIGH_VALUE is a LONG, so it takes the same
+-- chunked path. Bounds are almost always short expressions; a LIST
+-- partition with a very long value list gets the truncated flag and
+-- the converter declines it instead of guessing.
+SPOOL part_partitions.csv
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"OWNER","TABLE_NAME","PARTITION_NAME",'
+        || '"POSITION","HIGH_VALUE","TRUNCATED"');
+    FOR p IN (SELECT table_owner, table_name, partition_name,
+                     partition_position, high_value
+                FROM all_tab_partitions
+               WHERE table_owner = UPPER('&schema')
+                 AND table_name NOT LIKE 'BIN$%'
+               ORDER BY table_name, partition_position) LOOP
+        DECLARE
+            l_hv VARCHAR2(2000);
+        BEGIN
+            l_hv := SUBSTR(p.high_value, 1, 2000);
+            l_hv := REPLACE(REPLACE(REPLACE(l_hv, '"', '""'),
+                            CHR(13), ' '), CHR(10), ' ');
+            DBMS_OUTPUT.PUT_LINE('"' || p.table_owner || '","'
+                || p.table_name || '","' || p.partition_name || '",'
+                || p.partition_position || ',"' || l_hv || '",'
+                || CASE WHEN LENGTH(l_hv) >= 2000 THEN 1 ELSE 0 END);
+        END;
+    END LOOP;
+END;
+/
+SPOOL OFF
+
+SPOOL part_subpartitions.csv
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"OWNER","TABLE_NAME","PARTITION_NAME",'
+        || '"SUBPARTITION_NAME","POSITION","HIGH_VALUE","TRUNCATED"');
+    FOR s IN (SELECT table_owner, table_name, partition_name,
+                     subpartition_name, subpartition_position, high_value
+                FROM all_tab_subpartitions
+               WHERE table_owner = UPPER('&schema')
+                 AND table_name NOT LIKE 'BIN$%'
+               ORDER BY table_name, partition_name,
+                        subpartition_position) LOOP
+        DECLARE
+            l_hv VARCHAR2(2000);
+        BEGIN
+            l_hv := SUBSTR(s.high_value, 1, 2000);
+            l_hv := REPLACE(REPLACE(REPLACE(l_hv, '"', '""'),
+                            CHR(13), ' '), CHR(10), ' ');
+            DBMS_OUTPUT.PUT_LINE('"' || s.table_owner || '","'
+                || s.table_name || '","' || s.partition_name || '","'
+                || s.subpartition_name || '",'
+                || s.subpartition_position || ',"' || l_hv || '",'
+                || CASE WHEN LENGTH(l_hv) >= 2000 THEN 1 ELSE 0 END);
         END;
     END LOOP;
 END;

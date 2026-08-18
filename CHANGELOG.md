@@ -9,9 +9,16 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   type mapping, primary and unique keys, checks, and foreign keys;
   everything the converter cannot port faithfully lands in a residue
   report naming the object and the reason instead of becoming wrong
-  DDL. Partitioned parents carry their PARTITION BY clause; global
-  temporary tables and interval partitioning are residue with
-  pointers to pgtt and pg_partman.
+  DDL. Global temporary tables are residue with a pointer to pgtt.
+- Partition bounds are extracted (HIGH_VALUE through the same chunked
+  path as check conditions, subpartitions and subpartition keys
+  included) and converted to native partition children: RANGE with
+  correct LESS-THAN to FROM/TO translation and MAXVALUE, LIST with
+  DEFAULT partitions, HASH with MODULUS/REMAINDER, and composite
+  shapes. A bound the converter cannot translate faithfully omits
+  that table's whole child set with a named reason; interval-driven
+  creation carries a note pointing at scheduled creation such as
+  pg_partman.
 - Conditional compilation is handled and flagged (R-SRC-21): $IF
   directives are blanked before parsing so every branch's code stays
   analyzed, inquiry references such as $$plsql_unit parse as

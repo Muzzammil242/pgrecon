@@ -297,8 +297,9 @@ def convert(
     out.write_text(result.sql, encoding="utf-8", newline="\n")
     residue.write_text(residue_report(result.residue), encoding="utf-8", newline="\n")
     typer.echo(
-        f"Wrote {out} ({result.tables} tables, {result.constraints} constraints,"
-        f" {result.indexes} indexes, {result.views} views)"
+        f"Wrote {out} ({result.tables} tables, {result.partitions} partition"
+        f" children, {result.constraints} constraints, {result.indexes} indexes,"
+        f" {result.views} views)"
     )
     typer.echo(f"Wrote {residue} ({len(result.residue)} residue items)")
 

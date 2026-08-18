@@ -170,6 +170,39 @@ CREATE TABLE part_key_columns (
     PRIMARY KEY (owner, table_name, position)
 );
 
+CREATE TABLE part_subkey_columns (
+    owner       TEXT NOT NULL,
+    table_name  TEXT NOT NULL,
+    column_name TEXT,
+    position    INTEGER NOT NULL,
+    PRIMARY KEY (owner, table_name, position)
+);
+
+-- Partition bounds. HIGH_VALUE is a LONG in the dictionary, read
+-- through the same PL/SQL chunker as check conditions; a bound
+-- longer than the chunk is flagged truncated and the converter
+-- declines it rather than emitting a wrong one.
+CREATE TABLE part_partitions (
+    owner          TEXT NOT NULL,
+    table_name     TEXT NOT NULL,
+    partition_name TEXT NOT NULL,
+    position       INTEGER,
+    high_value     TEXT,
+    truncated      INTEGER,
+    PRIMARY KEY (owner, table_name, partition_name)
+);
+
+CREATE TABLE part_subpartitions (
+    owner             TEXT NOT NULL,
+    table_name        TEXT NOT NULL,
+    partition_name    TEXT NOT NULL,
+    subpartition_name TEXT NOT NULL,
+    position          INTEGER,
+    high_value        TEXT,
+    truncated         INTEGER,
+    PRIMARY KEY (owner, table_name, partition_name, subpartition_name)
+);
+
 CREATE TABLE synonyms (
     owner        TEXT NOT NULL,
     synonym_name TEXT NOT NULL,
