@@ -17,7 +17,6 @@ _VIEW_HEADER_NOISE = re.compile(
 )
 
 _PARTITION_SCOPED = re.compile(r"\bPARTITION\s*\(", re.IGNORECASE)
-_OBJECT_METHOD = re.compile(r"\b\w+\.\w+\.\w+\s*\(")
 
 
 def _view_guard(
@@ -26,7 +25,6 @@ def _view_guard(
     emitted: dict[tuple[str, str], set[str]],
     dropped: dict[tuple[str, str], set[str]],
     created_views: set[str],
-    folded_sql: str,
 ) -> str | None:
     """Why a view cannot be emitted faithfully, or None."""
     referenced: list[str] = []
@@ -36,20 +34,23 @@ def _view_guard(
             if "@" in node.name:
                 return "reads through a database link"
             referenced.append(tname)
+        # A dotted chain ending in a call is an object-type method
+        # invocation; the tree shows it directly.
+        if isinstance(node, exp.Dot) and isinstance(
+            node.expression, exp.Func | exp.Anonymous | exp.Dot
+        ):
+            return "uses object-relational methods that have no counterpart"
     known = {t for (_, t) in emitted} | created_views | {view_name.upper()}
     for tname in referenced:
         if tname not in known:
             return f"references {tname}, which is not in the converted set"
-    if _OBJECT_METHOD.search(folded_sql):
-        return "uses object-relational methods that have no counterpart"
     sources = [t for t in referenced if t != view_name.upper()]
     if len(set(sources)) == 1:
         gone = set()
         for (_owner, t), cols in dropped.items():
             if t == sources[0]:
                 gone |= cols
-        tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_$#]*", folded_sql)
-        lost = sorted({t.upper() for t in tokens} & gone)
+        lost = sorted({c.name.upper() for c in tree.find_all(exp.Column)} & gone)
         if lost:
             return f"references {lost[0]}, a column that was not converted"
     return None
@@ -145,7 +146,7 @@ def _emit_views(
                 )
             )
             continue
-        guard = _view_guard(tree, name, emitted, dropped, created_views, statement)
+        guard = _view_guard(tree, name, emitted, dropped, created_views)
         if guard is not None:
             residue.append(Residue(r["owner"], name, "view", guard))
             continue

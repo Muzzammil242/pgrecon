@@ -147,29 +147,63 @@ def _fold_condition(condition: str) -> str | None:
         return None
 
 
-_NO_PG_DEFAULT_FUNCS = re.compile(
-    r"\b(SYS_GUID|SYS_CONTEXT|USERENV)\s*\(", re.IGNORECASE
-)
-_TO_DATE_NONLITERAL = re.compile(r"\bTO_DATE\s*\(\s*[^')]", re.IGNORECASE)
+_UNSUPPORTED_EXPR_FUNCS = {"SYS_GUID", "SYS_CONTEXT", "USERENV"}
+
+
+def _func_name(node: Expr) -> str:
+    """The call name of a function node, uppercased; '' otherwise."""
+    if isinstance(node, exp.Anonymous):
+        return str(node.this).upper()
+    if isinstance(node, exp.Func):
+        return node.sql_name().upper()
+    return ""
+
+
+def _reparse(folded: str) -> Expr | None:
+    try:
+        parsed = sqlglot.parse(f"SELECT {folded}", dialect="postgres")
+        return parsed[0] if parsed else None
+    except SqlglotError:
+        return None
 
 
 def _default_guard(folded: str) -> str | None:
-    """Why a folded default expression cannot ship, or None.
+    """Why a folded expression cannot ship, or None.
 
-    The fold makes syntax valid; this catches functions PostgreSQL
-    does not have. SYS_GUID and the context readers have no
-    counterpart, and TO_DATE over a non-literal folds into a
-    signature that does not exist.
+    The fold makes syntax valid; this walks the tree for calls
+    PostgreSQL does not have. SYS_GUID and the context readers have
+    no counterpart, and TO_DATE over a non-literal folds into a
+    signature that does not exist. Walking nodes rather than text
+    means a string literal that merely mentions SYS_GUID stays
+    innocent.
     """
-    m = _NO_PG_DEFAULT_FUNCS.search(folded)
-    if m:
-        return (
-            f"{m.group(1).upper()} has no PostgreSQL counterpart in a"
-            " default; choose a replacement by hand"
-        )
-    if _TO_DATE_NONLITERAL.search(folded):
-        return (
-            "TO_DATE over a non-literal has no matching PostgreSQL"
-            " signature; rewrite the default by hand"
-        )
+    tree = _reparse(folded)
+    if tree is None:
+        return "expression could not be re-checked; rewrite it by hand"
+    for node in tree.walk():
+        name = _func_name(node)
+        if name in _UNSUPPORTED_EXPR_FUNCS:
+            return (
+                f"{name} has no PostgreSQL counterpart here; choose a"
+                " replacement by hand"
+            )
+        if name in ("TO_DATE", "STR_TO_DATE"):
+            if isinstance(node, exp.Anonymous):
+                first = node.expressions[0] if node.expressions else None
+            else:
+                first = node.args.get("this")
+            if not (isinstance(first, exp.Literal) and first.is_string):
+                return (
+                    "TO_DATE over a non-literal has no matching"
+                    " PostgreSQL signature; rewrite it by hand"
+                )
     return None
+
+
+def _referenced_columns(folded: str) -> set[str] | None:
+    """Column names a folded condition references, or None on reparse
+    failure so the caller can fall back to a token scan."""
+    tree = _reparse(f"1 WHERE {folded}")
+    if tree is None:
+        return None
+    return {c.name.upper() for c in tree.find_all(exp.Column)}

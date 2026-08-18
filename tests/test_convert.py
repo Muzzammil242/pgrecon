@@ -456,6 +456,50 @@ def test_defaults_without_pg_counterparts_decline(tmp_path: Path) -> None:
     assert "TO_DATE" in reasons
 
 
+def test_string_literal_mentioning_sys_guid_is_innocent(tmp_path: Path) -> None:
+    # The guard walks the tree, so a default whose STRING mentions
+    # SYS_GUID( must not decline - only a real call does.
+    db = tmp_path / "lit.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary)
+          VALUES ('HR', 'NOTES', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'NOTES', 'ID', 1, 'NUMBER', 22, 10, 0, 'N'),
+          ('HR', 'NOTES', 'HINT', 2, 'VARCHAR2', 60, NULL, NULL, 'Y');
+        INSERT INTO column_defaults
+          (owner, table_name, column_name, default_text, virtual, truncated)
+          VALUES ('HR', 'NOTES', 'HINT', '''use SYS_GUID() here''', 'NO', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(db)
+    assert "DEFAULT 'use SYS_GUID() here'" in result.sql
+    assert not any("SYS_GUID" in r.reason for r in result.residue)
+
+
+def test_object_method_view_declines(facts_db: Path) -> None:
+    import sqlite3 as s3
+
+    conn = s3.connect(facts_db)
+    conn.execute(
+        "INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality)"
+        " VALUES ('HR', 'V_AGES', 'VIEW',"
+        ' \'CREATE OR REPLACE VIEW "HR"."V_AGES" AS SELECT'
+        ' p.person.getAge() AS age FROM "HR"."EMP" p\', 1, \'full\')'
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    ages = [r for r in result.residue if r.object_name == "V_AGES"]
+    assert ages and "object-relational" in ages[0].reason
+    assert "getage" not in result.sql.lower()
+
+
 def test_defaults_and_generated_columns(closers_db: Path) -> None:
     sql = convert_schema(closers_db).sql
     assert "placed_at timestamp(0) DEFAULT CURRENT_TIMESTAMP NOT NULL" in sql

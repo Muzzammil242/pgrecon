@@ -3,7 +3,7 @@
 import re
 import sqlite3
 
-from pgrecon.convert.identifiers import _fold_condition, ident
+from pgrecon.convert.identifiers import _fold_condition, _referenced_columns, ident
 from pgrecon.convert.residue import Residue
 
 _NOT_NULL_CONDITION = re.compile(
@@ -161,8 +161,14 @@ def _emit_checks(
             )
             continue
         gone = dropped.get((r["owner"], r["table_name"]), set())
-        tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_$#]*", folded)
-        lost = sorted({t.upper() for t in tokens} & gone)
+        referenced = _referenced_columns(folded)
+        if referenced is None:
+            # The reparse should never fail on our own output; the
+            # token scan stays as the safe fallback if it does.
+            referenced = {
+                t.upper() for t in re.findall(r"[a-zA-Z_][a-zA-Z0-9_$#]*", folded)
+            }
+        lost = sorted(referenced & gone)
         if lost:
             residue.append(
                 Residue(

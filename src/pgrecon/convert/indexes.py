@@ -2,7 +2,7 @@
 
 import sqlite3
 
-from pgrecon.convert.identifiers import _fold_expression, ident
+from pgrecon.convert.identifiers import _default_guard, _fold_expression, ident
 from pgrecon.convert.residue import Residue
 
 
@@ -71,8 +71,9 @@ def _emit_indexes(
                     )
                     break
                 folded = _fold_expression(expression)
-                if folded is None:
-                    skip_reason = (
+                guard = None if folded is None else _default_guard(folded)
+                if folded is None or guard is not None:
+                    skip_reason = guard or (
                         "index expression could not be translated;"
                         " recreate it from the source"
                     )
