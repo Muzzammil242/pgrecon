@@ -2,6 +2,53 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## 0.2.0 - 2026-08-19
+
+- The converter grows a code lane: standalone functions and
+  procedures whose every construct is provably equivalent convert
+  mechanically to PL/pgSQL - headers, parameter modes and defaults,
+  a documented type mapping for declarations, cursor declarations,
+  cursor%ROWTYPE as record variables, NVL to COALESCE, SYSDATE to
+  CURRENT_TIMESTAMP, sequence NEXTVAL to nextval validated against
+  extracted sequences, DBMS_OUTPUT.PUT_LINE to RAISE NOTICE,
+  EXECUTE IMMEDIATE to EXECUTE, q-quoted literals, FROM DUAL
+  removal, and exception conditions mapped only where behavior
+  matches (DUP_VAL_ON_INDEX, ZERO_DIVIDE). Comments and formatting
+  survive, because edits splice the original source. Everything
+  semantic refuses by name and line into the residue report -
+  autonomous transactions, REF CURSOR, BULK COLLECT and FORALL,
+  collections, CONNECT BY, ROWNUM, DECODE, cursor attributes,
+  unproven calls and anchors - and a unit that calls a refused unit
+  refuses with it. Function bodies validate on the target with
+  check_function_bodies on, never disabled.
+- Expression guards walk the re-parsed syntax tree instead of
+  matching text, so a string literal that merely mentions SYS_GUID
+  stays innocent while real calls still decline, and TO_DATE guards
+  inspect the actual first argument.
+- The converter covers the rest of schema structure: sequences
+  restarted at their extracted position with bigint-safe bounds,
+  schema-local synonyms as updatable views, database links
+  scaffolded as oracle_fdw servers awaiting credentials, column
+  defaults translated through the same folding as views (SYSDATE
+  becomes CURRENT_TIMESTAMP), and virtual columns as PostgreSQL
+  generated columns. Defaults with no PostgreSQL counterpart, such
+  as SYS_GUID, decline by name instead of failing on the target.
+- pgrecon convert begins: schema structure to PostgreSQL DDL, offline
+  from the inventory's dictionary facts. Tables with a documented
+  type mapping, primary and unique keys, checks, and foreign keys;
+  everything the converter cannot port faithfully lands in a residue
+  report naming the object and the reason instead of becoming wrong
+  DDL. Global temporary tables are residue with a pointer to pgtt.
+- Partition bounds are extracted (HIGH_VALUE through the same chunked
+  path as check conditions, subpartitions and subpartition keys
+  included) and converted to native partition children: RANGE with
+  correct LESS-THAN to FROM/TO translation and MAXVALUE, LIST with
+  DEFAULT partitions, HASH with MODULUS/REMAINDER, and composite
+  shapes. A bound the converter cannot translate faithfully omits
+  that table's whole child set with a named reason; interval-driven
+  creation carries a note pointing at scheduled creation such as
+  pg_partman.
+
 ## 0.1.5 - 2026-08-18
 
 - Conditional compilation is handled and flagged (R-SRC-21): $IF

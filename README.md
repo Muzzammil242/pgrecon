@@ -9,7 +9,10 @@ database from an offline dump and runs a deterministic rule engine over
 it, reporting the constructs that decide the real cost of a move:
 package-level state, autonomous transactions, LONG columns, interval
 partitioning, database links, and several dozen other things that
-surface late and expensively when nobody looks for them first.
+surface late and expensively when nobody looks for them first. The
+same inventory drives an offline converter that emits PostgreSQL DDL
+for everything it can prove and a named refusal for everything it
+cannot.
 
 pgrecon never connects to the database. A reviewable SQL*Plus script is
 run by the DBA with a read-only account; only files cross the boundary.
@@ -19,8 +22,9 @@ nothing but SQL*Plus.
 ## How it works
 
     pgrecon script   ->  extraction script, reviewed and run by the DBA
-    dump folder      ->  pgrecon load   ->  local SQLite inventory
-    inventory        ->  pgrecon report ->  findings by severity
+    dump folder      ->  pgrecon load    ->  local SQLite inventory
+    inventory        ->  pgrecon report  ->  findings by severity
+    inventory        ->  pgrecon convert ->  PostgreSQL DDL + residue
 
 Every finding is produced by a rule with a stable id running a query
 against the inventory. Same dump in, same findings out; nothing is
@@ -164,12 +168,43 @@ describe, and every run prints its assumptions. The rates are a
 deliberately conservative default calibration; treat the output as a
 scoping instrument, not a quote.
 
+## Converting
+
+    uv run pgrecon convert --db sample.db
+
+The converter writes two files from the same inventory, offline like
+everything else. The first is PostgreSQL DDL for what it can prove:
+tables under a documented type mapping (NUMBER stays exact, never a
+float), keys, checks, foreign keys, secondary indexes, native
+partition children for range, list, hash, and composite layouts,
+views transpiled with (+) joins folded to ANSI, sequences restarted
+at their extracted position, synonyms as views, database links
+scaffolded as oracle_fdw servers, generated columns, and standalone
+functions and procedures whose every construct has a provably
+equivalent PL/pgSQL form - comments and formatting carried through,
+SELECT INTO made STRICT so NO_DATA_FOUND still raises, function
+bodies left to PostgreSQL's own validation rather than disabling it.
+
+The second file is the residue: one line per declined object, naming
+the construct and the line number. Packages, triggers, CONNECT BY,
+autonomous transactions, REF CURSOR interfaces, BULK COLLECT - the
+work that needs a person is refused by name, never guessed at, and a
+routine that calls a refused routine is refused with it.
+
+Two rules hold everywhere. Nothing invalid ships: development applies
+every change to a live PostgreSQL 16 with check_function_bodies on
+before it lands. Nothing is lost silently: whatever the converter
+cannot carry faithfully becomes a named residue line instead of
+quietly wrong output.
+
 ## Status
 
 Alpha. The extraction scripts and inventory are stable; the rule
 catalog is growing. Effort points in the report are relative weights
 for sorting findings; person-day ranges come from pgrecon estimate
-and its visible calibration.
+and its visible calibration. The converter is new in 0.2: schema
+structure converts end to end on the test estates, and the code lane
+deliberately converts only what it can prove.
 
 Scale is measured, not hoped for: a synthetic estate of 5,000 tables
 and 100,000 lines of PL/SQL across 1,600 stored units, one of them a

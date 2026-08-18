@@ -272,6 +272,41 @@ def estimate(
 
 
 @app.command()
+def convert(
+    db: Annotated[
+        Path,
+        typer.Option(exists=True, dir_okay=False, help="Inventory database."),
+    ] = Path("inventory.db"),
+    out: Annotated[
+        Path, typer.Option(help="Where to write the PostgreSQL schema DDL.")
+    ] = Path("schema_pg.sql"),
+    residue: Annotated[
+        Path,
+        typer.Option(help="Where to write the residue report."),
+    ] = Path("schema_residue.txt"),
+) -> None:
+    """Convert schema structure to PostgreSQL DDL, offline.
+
+    Tables, columns, keys, checks, and foreign keys come from the
+    inventory's dictionary facts. Everything the converter cannot
+    port faithfully lands in the residue report instead of the DDL.
+    """
+    from pgrecon.convert import convert_schema, residue_report
+
+    result = convert_schema(db)
+    out.write_text(result.sql, encoding="utf-8", newline="\n")
+    residue.write_text(residue_report(result.residue), encoding="utf-8", newline="\n")
+    typer.echo(
+        f"Wrote {out} ({result.tables} tables, {result.partitions} partition"
+        f" children, {result.constraints} constraints, {result.indexes} indexes,"
+        f" {result.views} views, {result.sequences} sequences,"
+        f" {result.synonyms} synonyms, {result.db_links} db links,"
+        f" {result.routines} routines)"
+    )
+    typer.echo(f"Wrote {residue} ({len(result.residue)} residue items)")
+
+
+@app.command()
 def explain(
     rule_id: Annotated[
         str | None,

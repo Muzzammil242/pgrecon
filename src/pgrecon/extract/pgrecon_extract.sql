@@ -225,6 +225,31 @@ SELECT owner, name, column_name, column_position
  ORDER BY name, column_position;
 SPOOL OFF
 
+SPOOL part_subkey_columns.csv
+SELECT owner, name, column_name, column_position
+  FROM all_subpart_key_columns
+ WHERE owner = UPPER('&schema')
+   AND object_type = 'TABLE'
+ ORDER BY name, column_position;
+SPOOL OFF
+
+-- Sequence facts spool as text: Oracle sequence bounds go to 1e28,
+-- far past any integer type on the loading side.
+SPOOL sequences.csv
+SELECT sequence_owner AS owner,
+       sequence_name,
+       TO_CHAR(min_value) AS min_value,
+       TO_CHAR(max_value) AS max_value,
+       TO_CHAR(increment_by) AS increment_by,
+       cycle_flag,
+       TO_CHAR(cache_size) AS cache_size,
+       TO_CHAR(last_number) AS last_number
+  FROM all_sequences
+ WHERE sequence_owner = UPPER('&schema')
+   AND sequence_name NOT LIKE 'ISEQ$$%'
+ ORDER BY sequence_name;
+SPOOL OFF
+
 SPOOL synonyms.csv
 SELECT owner, synonym_name, table_owner, table_name, db_link
   FROM all_synonyms
@@ -397,6 +422,95 @@ BEGIN
             DBMS_OUTPUT.PUT_LINE('"' || c.owner || '","'
                 || c.constraint_name || '","' || l_cond || '",'
                 || CASE WHEN LENGTH(l_cond) >= 2000 THEN 1 ELSE 0 END);
+        END;
+    END LOOP;
+END;
+/
+SPOOL OFF
+
+-- Column defaults and virtual-column expressions: DATA_DEFAULT is a
+-- LONG, so it takes the chunked path too. Only columns that carry a
+-- default or are virtual spool a row.
+SPOOL column_defaults.csv
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"OWNER","TABLE_NAME","COLUMN_NAME",'
+        || '"DEFAULT_TEXT","VIRTUAL","TRUNCATED"');
+    FOR d IN (SELECT owner, table_name, column_name, data_default,
+                     virtual_column
+                FROM all_tab_cols
+               WHERE owner = UPPER('&schema')
+                 AND hidden_column = 'NO'
+                 AND table_name NOT LIKE 'BIN$%'
+                 AND (data_default IS NOT NULL OR virtual_column = 'YES')
+               ORDER BY table_name, column_id) LOOP
+        DECLARE
+            l_def VARCHAR2(2000);
+        BEGIN
+            l_def := SUBSTR(d.data_default, 1, 2000);
+            l_def := REPLACE(REPLACE(REPLACE(l_def, '"', '""'),
+                             CHR(13), ' '), CHR(10), ' ');
+            DBMS_OUTPUT.PUT_LINE('"' || d.owner || '","'
+                || d.table_name || '","' || d.column_name || '","'
+                || l_def || '","' || d.virtual_column || '",'
+                || CASE WHEN LENGTH(l_def) >= 2000 THEN 1 ELSE 0 END);
+        END;
+    END LOOP;
+END;
+/
+SPOOL OFF
+
+-- Partition bounds: HIGH_VALUE is a LONG, so it takes the same
+-- chunked path. Bounds are almost always short expressions; a LIST
+-- partition with a very long value list gets the truncated flag and
+-- the converter declines it instead of guessing.
+SPOOL part_partitions.csv
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"OWNER","TABLE_NAME","PARTITION_NAME",'
+        || '"POSITION","HIGH_VALUE","TRUNCATED"');
+    FOR p IN (SELECT table_owner, table_name, partition_name,
+                     partition_position, high_value
+                FROM all_tab_partitions
+               WHERE table_owner = UPPER('&schema')
+                 AND table_name NOT LIKE 'BIN$%'
+               ORDER BY table_name, partition_position) LOOP
+        DECLARE
+            l_hv VARCHAR2(2000);
+        BEGIN
+            l_hv := SUBSTR(p.high_value, 1, 2000);
+            l_hv := REPLACE(REPLACE(REPLACE(l_hv, '"', '""'),
+                            CHR(13), ' '), CHR(10), ' ');
+            DBMS_OUTPUT.PUT_LINE('"' || p.table_owner || '","'
+                || p.table_name || '","' || p.partition_name || '",'
+                || p.partition_position || ',"' || l_hv || '",'
+                || CASE WHEN LENGTH(l_hv) >= 2000 THEN 1 ELSE 0 END);
+        END;
+    END LOOP;
+END;
+/
+SPOOL OFF
+
+SPOOL part_subpartitions.csv
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"OWNER","TABLE_NAME","PARTITION_NAME",'
+        || '"SUBPARTITION_NAME","POSITION","HIGH_VALUE","TRUNCATED"');
+    FOR s IN (SELECT table_owner, table_name, partition_name,
+                     subpartition_name, subpartition_position, high_value
+                FROM all_tab_subpartitions
+               WHERE table_owner = UPPER('&schema')
+                 AND table_name NOT LIKE 'BIN$%'
+               ORDER BY table_name, partition_name,
+                        subpartition_position) LOOP
+        DECLARE
+            l_hv VARCHAR2(2000);
+        BEGIN
+            l_hv := SUBSTR(s.high_value, 1, 2000);
+            l_hv := REPLACE(REPLACE(REPLACE(l_hv, '"', '""'),
+                            CHR(13), ' '), CHR(10), ' ');
+            DBMS_OUTPUT.PUT_LINE('"' || s.table_owner || '","'
+                || s.table_name || '","' || s.partition_name || '","'
+                || s.subpartition_name || '",'
+                || s.subpartition_position || ',"' || l_hv || '",'
+                || CASE WHEN LENGTH(l_hv) >= 2000 THEN 1 ELSE 0 END);
         END;
     END LOOP;
 END;
