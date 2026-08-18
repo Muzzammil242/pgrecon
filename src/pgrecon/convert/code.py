@@ -299,6 +299,10 @@ def _emit_code(
             "SELECT name FROM objects WHERE type IN ('FUNCTION', 'PROCEDURE')"
         )
     }
+    procedures = frozenset(
+        (r["name"] or "").upper()
+        for r in conn.execute("SELECT name FROM objects WHERE type = 'PROCEDURE'")
+    )
     packages = {
         (r["name"] or "").upper()
         for r in conn.execute("SELECT name FROM objects WHERE type = 'PACKAGE'")
@@ -397,7 +401,7 @@ def _emit_code(
         if not reasons:
             text = _unit_text(conn, owner, name, otype)
             relations = tables | created_views | synonyms
-            result = rewrite_unit(text, otype, sequences, relations)
+            result = rewrite_unit(text, otype, sequences, relations, procedures)
             reasons += list(result.reasons)
             notes += list(result.notes)
             sql = result.sql

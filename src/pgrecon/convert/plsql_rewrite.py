@@ -71,11 +71,13 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
         is_function: bool,
         sequences: set[str],
         relations: set[str],
+        procedures: frozenset[str],
     ) -> None:
         self.text = text
         self.is_function = is_function
         self.sequences = sequences
         self.relations = relations
+        self.procedures = procedures
         self.edits: list[tuple[int, int, str]] = []
         self.reasons: list[str] = []
         self.notes: list[str] = []
@@ -428,6 +430,15 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
                 "RAISE_APPLICATION_ERROR carries an Oracle error code;"
                 " choose a RAISE EXCEPTION ... USING ERRCODE mapping",
             )
+        elif callee.replace('"', "") in self.procedures:
+            # A bare procedure-call statement is not a statement on
+            # PostgreSQL; it becomes CALL, with the parentheses CALL
+            # requires.
+            spelled = _fold_written(self._span_text(routine))
+            if args is None:
+                self._edit_ctx(routine, f"CALL {spelled}()")
+            else:
+                self._edit_ctx(routine, f"CALL {spelled}")
 
     def enterException_handler(self, ctx: Any) -> None:
         for name in ctx.exception_name():
@@ -674,21 +685,28 @@ def _apply(text: str, edits: list[tuple[int, int, str]]) -> str | None:
 
 
 def rewrite_unit(
-    text: str, unit_type: str, sequences: set[str], relations: set[str]
+    text: str,
+    unit_type: str,
+    sequences: set[str],
+    relations: set[str],
+    procedures: frozenset[str] = frozenset(),
 ) -> RewriteResult:
     """One stored FUNCTION or PROCEDURE as PostgreSQL DDL, or reasons.
 
     The input is the unit exactly as ALL_SOURCE stored it, starting at
     its type keyword; the output is a complete CREATE OR REPLACE
     statement in dollar quoting, or None with every reason the unit
-    was refused.
+    was refused. Callees named in procedures are procedure-call
+    statements on the source side and gain the CALL PostgreSQL needs.
     """
     parse = parse_source(text.rstrip())
     if parse.tree is None or parse.errors:
         first = parse.errors[0] if parse.errors else "no parse tree"
         return RewriteResult(None, (f"did not parse cleanly ({first})",), ())
     full = "CREATE OR REPLACE " + text.rstrip()
-    rewriter = _Rewriter(full, unit_type.upper() == "FUNCTION", sequences, relations)
+    rewriter = _Rewriter(
+        full, unit_type.upper() == "FUNCTION", sequences, relations, procedures
+    )
     ParseTreeWalker.DEFAULT.walk(rewriter, parse.tree)
     _scan_tokens(rewriter, parse.tokens)
     notes = tuple(dict.fromkeys(rewriter.notes))

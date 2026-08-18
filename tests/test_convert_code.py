@@ -157,6 +157,13 @@ BEGIN
   EXECUTE IMMEDIATE 'begin :x := 1; end;' USING OUT p;
 END binds_out_p;"""
 
+PCALL_P = """PROCEDURE pcall_p IS
+  v NUMBER := 1;
+BEGIN
+  p_commit;
+  inout_p(v);
+END pcall_p;"""
+
 _UNITS = [
     ("FEE_FOR", "FUNCTION", FEE_FOR),
     ("AUTON_P", "PROCEDURE", AUTON_P),
@@ -177,6 +184,7 @@ _UNITS = [
     ("BINDS_P", "PROCEDURE", BINDS_P),
     ("BINDS_LOOSE_P", "PROCEDURE", BINDS_LOOSE_P),
     ("BINDS_OUT_P", "PROCEDURE", BINDS_OUT_P),
+    ("PCALL_P", "PROCEDURE", PCALL_P),
 ]
 
 
@@ -310,8 +318,14 @@ def test_refusal_cascades_to_callers(code_db: Path) -> None:
 
 def test_routine_count_matches_emitted(code_db: Path) -> None:
     result = convert_schema(code_db)
-    assert result.routines == 7
-    assert result.sql.count("LANGUAGE plpgsql") == 7
+    assert result.routines == 8
+    assert result.sql.count("LANGUAGE plpgsql") == 8
+
+
+def test_bare_procedure_calls_gain_call(code_db: Path) -> None:
+    result = convert_schema(code_db)
+    assert "CALL p_commit();" in result.sql
+    assert "CALL inout_p(v);" in result.sql
 
 
 def test_adjacent_fetch_notfound_translates(code_db: Path) -> None:
