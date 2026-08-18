@@ -135,7 +135,7 @@ def test_schema_conversion_emits_tables_and_constraints(facts_db: Path) -> None:
         "ALTER TABLE emp ADD CONSTRAINT emp_dept_fk FOREIGN KEY (dept_id)"
         " REFERENCES dept (dept_id) ON DELETE SET NULL;" in sql
     )
-    assert "CHECK (SALARY > 0);" in sql
+    assert "CHECK (salary > 0);" in sql
     assert result.tables == 3
     assert result.constraints == 4
 
@@ -306,6 +306,83 @@ def test_composite_list_hash_children(parts_db: Path) -> None:
         "CREATE TABLE lh_part_aa_sp1 PARTITION OF lh_part_aa"
         " FOR VALUES WITH (MODULUS 2, REMAINDER 0);" in sql
     )
+
+
+def test_quoted_uppercase_check_folds_to_converted_columns(facts_db: Path) -> None:
+    # Oracle stores conditions with quoted uppercase identifiers; the
+    # emitted check must reference the lowercase columns we created.
+    sql = convert_schema(facts_db).sql
+    assert '"SALARY"' not in sql
+    assert '"EMP_ID"' not in sql
+
+
+def test_check_on_dropped_column_declines(tmp_path: Path) -> None:
+    db = tmp_path / "ck.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary)
+          VALUES ('HR', 'SCANS', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'SCANS', 'ID', 1, 'NUMBER', 22, 10, 0, 'N'),
+          ('HR', 'SCANS', 'DOC', 2, 'BFILE', 530, NULL, NULL, 'Y');
+        INSERT INTO constraints
+          (owner, constraint_name, table_name, type)
+          VALUES ('HR', 'SCANS_DOC_CK', 'SCANS', 'C');
+        INSERT INTO check_conditions (owner, constraint_name, condition, truncated)
+          VALUES ('HR', 'SCANS_DOC_CK', '"DOC" IS NOT NULL OR "ID" > 0', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(db)
+    assert "scans_doc_ck" not in result.sql.lower()
+    reasons = [r.reason for r in result.residue if r.object_name == "SCANS_DOC_CK"]
+    assert reasons and "DOC" in reasons[0]
+
+
+def test_partitioned_pk_missing_partition_key_declines(parts_db: Path) -> None:
+    import sqlite3 as s3
+
+    conn = s3.connect(parts_db)
+    conn.executescript(
+        """
+        INSERT INTO constraints (owner, constraint_name, table_name, type)
+          VALUES ('HR', 'LH_PK', 'LH', 'P');
+        INSERT INTO constraint_columns
+          (owner, constraint_name, column_name, position)
+          VALUES ('HR', 'LH_PK', 'ID', 1);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(parts_db)
+    assert "lh_pk" not in result.sql.lower()
+    reasons = [r.reason for r in result.residue if r.object_name == "LH_PK"]
+    assert reasons and "partition key" in reasons[0]
+
+
+def test_constraint_on_hidden_system_column_declines(parts_db: Path) -> None:
+    import sqlite3 as s3
+
+    conn = s3.connect(parts_db)
+    conn.executescript(
+        """
+        INSERT INTO constraints (owner, constraint_name, table_name, type)
+          VALUES ('HR', 'EVENTS_UK', 'EVENTS', 'U');
+        INSERT INTO constraint_columns
+          (owner, constraint_name, column_name, position)
+          VALUES ('HR', 'EVENTS_UK', 'SYS_NC00003$', 1);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(parts_db)
+    assert "events_uk" not in result.sql.lower()
+    reasons = [r.reason for r in result.residue if r.object_name == "EVENTS_UK"]
+    assert reasons and "hidden system column" in reasons[0]
 
 
 def test_unconvertible_bound_omits_all_children(parts_db: Path) -> None:

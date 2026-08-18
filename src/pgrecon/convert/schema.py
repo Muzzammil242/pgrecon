@@ -405,6 +405,13 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
     out.append("-- for everything that needs a human decision.")
     out.append("")
 
+    # Tables and the columns that actually made it into the DDL; the
+    # constraint emitters validate against this so nothing references
+    # a table or column that does not exist on the target. Dropped
+    # columns are tracked so a check condition naming one declines.
+    emitted: dict[tuple[str, str], set[str]] = {}
+    dropped: dict[tuple[str, str], set[str]] = {}
+
     tables = conn.execute(
         "SELECT owner, table_name, temporary FROM tables" " ORDER BY owner, table_name"
     ).fetchall()
@@ -418,6 +425,7 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
             )
             continue
         lines: list[str] = []
+        kept_columns: set[str] = set()
         for c in cols:
             mapped = map_type(
                 c["data_type"], c["data_length"], c["data_precision"], c["data_scale"]
@@ -431,6 +439,9 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
                         mapped.note or "unmappable type",
                     )
                 )
+                dropped.setdefault((owner, table), set()).add(
+                    (c["column_name"] or "").upper()
+                )
                 continue
             if mapped.note is not None:
                 residue.append(
@@ -438,6 +449,7 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
                 )
             null = "" if (c["nullable"] or "Y") == "Y" else " NOT NULL"
             lines.append(f"    {ident(c['column_name'])} {mapped.pg_type}{null}")
+            kept_columns.add((c["column_name"] or "").upper())
         if not lines:
             residue.append(
                 Residue(owner, table, "table", "every column was unconvertible")
@@ -461,16 +473,17 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
         out.append(f"){meta.clause if meta else ''};")
         out.append("")
         table_count += 1
+        emitted[(owner, table)] = kept_columns
         if meta is not None:
             partition_count += _emit_partition_children(
                 conn, owner, table, meta, out, residue
             )
 
-    constraint_count += _emit_keys(conn, out, residue)
-    constraint_count += _emit_checks(conn, out, residue)
-    constraint_count += _emit_foreign_keys(conn, out, residue)
-    index_count = _emit_indexes(conn, out, residue)
-    view_count = _emit_views(conn, out, residue)
+    constraint_count += _emit_keys(conn, out, residue, emitted)
+    constraint_count += _emit_checks(conn, out, residue, emitted, dropped)
+    constraint_count += _emit_foreign_keys(conn, out, residue, emitted)
+    index_count = _emit_indexes(conn, out, residue, emitted)
+    view_count = _emit_views(conn, out, residue, emitted, dropped)
 
     return Conversion(
         "\n".join(out),
@@ -483,36 +496,96 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
     )
 
 
-def _constraint_columns(conn: sqlite3.Connection, owner: str, name: str) -> list[str]:
+def _constraint_guard(
+    conn: sqlite3.Connection,
+    owner: str,
+    table: str,
+    raw_columns: list[str],
+    emitted: dict[tuple[str, str], set[str]],
+    unique: bool,
+) -> str | None:
+    """Why a constraint cannot be emitted faithfully, or None."""
+    if (owner, table) not in emitted:
+        return (
+            "its table is outside the converted set (nested or IOT"
+            " storage, remote, or every column was unconvertible)"
+        )
+    if any(c.upper().startswith("SYS_NC") for c in raw_columns):
+        return (
+            "it is built on a hidden system column; recreate it from"
+            " the source definition"
+        )
+    missing = [c for c in raw_columns if c.upper() not in emitted[(owner, table)]]
+    if missing:
+        return f"column {missing[0]} was not converted"
+    if unique:
+        part_keys = [
+            (r["column_name"] or "").upper()
+            for r in conn.execute(
+                "SELECT column_name FROM part_key_columns"
+                " WHERE owner = ? AND table_name = ?",
+                (owner, table),
+            )
+        ]
+        cols = {c.upper() for c in raw_columns}
+        uncovered = [k for k in part_keys if k not in cols]
+        if uncovered:
+            return (
+                "PostgreSQL requires unique constraints on a"
+                " partitioned table to include every partition key;"
+                f" {uncovered[0]} is missing - widen the key or"
+                " enforce uniqueness another way"
+            )
+    return None
+
+
+def _raw_constraint_columns(
+    conn: sqlite3.Connection, owner: str, name: str
+) -> list[str]:
     return [
-        ident(r["column_name"])
+        r["column_name"]
         for r in conn.execute(
             "SELECT column_name FROM constraint_columns"
             " WHERE owner = ? AND constraint_name = ? ORDER BY position",
             (owner, name),
         )
+        if r["column_name"]
     ]
 
 
-def _emit_keys(conn: sqlite3.Connection, out: list[str], residue: list[Residue]) -> int:
+def _emit_keys(
+    conn: sqlite3.Connection,
+    out: list[str],
+    residue: list[Residue],
+    emitted: dict[tuple[str, str], set[str]],
+) -> int:
     count = 0
     rows = conn.execute(
         "SELECT owner, constraint_name, table_name, type FROM constraints"
         " WHERE type IN ('P', 'U') ORDER BY type, owner, table_name, constraint_name"
     ).fetchall()
     for r in rows:
-        cols = _constraint_columns(conn, r["owner"], r["constraint_name"])
-        if not cols:
+        raw = _raw_constraint_columns(conn, r["owner"], r["constraint_name"])
+        if not raw:
             residue.append(
                 Residue(
                     r["owner"], r["constraint_name"], "constraint", "no column facts"
                 )
             )
             continue
+        reason = _constraint_guard(
+            conn, r["owner"], r["table_name"], raw, emitted, unique=True
+        )
+        if reason is not None:
+            residue.append(
+                Residue(r["owner"], r["constraint_name"], "constraint", reason)
+            )
+            continue
         kind = "PRIMARY KEY" if r["type"] == "P" else "UNIQUE"
+        cols = ", ".join(ident(c) for c in raw)
         out.append(
             f"ALTER TABLE {ident(r['table_name'])} ADD CONSTRAINT"
-            f" {ident(r['constraint_name'])} {kind} ({', '.join(cols)});"
+            f" {ident(r['constraint_name'])} {kind} ({cols});"
         )
         count += 1
     if rows:
@@ -520,8 +593,32 @@ def _emit_keys(conn: sqlite3.Connection, out: list[str], residue: list[Residue])
     return count
 
 
+def _fold_condition(condition: str) -> str | None:
+    """A check condition with identifiers folded, or None to decline.
+
+    Oracle stores conditions with quoted uppercase identifiers that
+    would miss the lowercase columns this converter creates; the same
+    folding the views get fixes them, through a throwaway SELECT.
+    """
+    try:
+        parsed = sqlglot.parse(f"SELECT 1 WHERE {condition}", dialect="oracle")
+        tree = parsed[0] if parsed else None
+        if tree is None:
+            return None
+        where = _fold_identifiers(tree).find(exp.Where)
+        if where is None:
+            return None
+        return str(where.this.sql(dialect="postgres"))
+    except SqlglotError:
+        return None
+
+
 def _emit_checks(
-    conn: sqlite3.Connection, out: list[str], residue: list[Residue]
+    conn: sqlite3.Connection,
+    out: list[str],
+    residue: list[Residue],
+    emitted: dict[tuple[str, str], set[str]],
+    dropped: dict[tuple[str, str], set[str]],
 ) -> int:
     count = 0
     rows = conn.execute(
@@ -530,7 +627,7 @@ def _emit_checks(
         " ON k.owner = c.owner AND k.constraint_name = c.constraint_name"
         " WHERE c.type = 'C' ORDER BY c.owner, c.table_name, c.constraint_name"
     ).fetchall()
-    emitted = False
+    wrote = False
     for r in rows:
         condition = (r["condition"] or "").strip()
         if not condition or _NOT_NULL_CONDITION.match(condition):
@@ -547,19 +644,57 @@ def _emit_checks(
                 )
             )
             continue
+        if (r["owner"], r["table_name"]) not in emitted:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["constraint_name"],
+                    "check",
+                    "its table is outside the converted set",
+                )
+            )
+            continue
+        folded = _fold_condition(condition)
+        if folded is None:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["constraint_name"],
+                    "check",
+                    "condition could not be translated; port it by hand",
+                )
+            )
+            continue
+        gone = dropped.get((r["owner"], r["table_name"]), set())
+        tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_$#]*", folded)
+        lost = sorted({t.upper() for t in tokens} & gone)
+        if lost:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["constraint_name"],
+                    "check",
+                    f"condition references {lost[0]}, a column that was"
+                    " not converted",
+                )
+            )
+            continue
         out.append(
             f"ALTER TABLE {ident(r['table_name'])} ADD CONSTRAINT"
-            f" {ident(r['constraint_name'])} CHECK ({condition});"
+            f" {ident(r['constraint_name'])} CHECK ({folded});"
         )
-        emitted = True
+        wrote = True
         count += 1
-    if emitted:
+    if wrote:
         out.append("")
     return count
 
 
 def _emit_foreign_keys(
-    conn: sqlite3.Connection, out: list[str], residue: list[Residue]
+    conn: sqlite3.Connection,
+    out: list[str],
+    residue: list[Residue],
+    emitted: dict[tuple[str, str], set[str]],
 ) -> int:
     count = 0
     rows = conn.execute(
@@ -568,18 +703,18 @@ def _emit_foreign_keys(
         " ORDER BY owner, table_name, constraint_name"
     ).fetchall()
     for r in rows:
-        cols = _constraint_columns(conn, r["owner"], r["constraint_name"])
+        raw = _raw_constraint_columns(conn, r["owner"], r["constraint_name"])
         ref = conn.execute(
             "SELECT table_name FROM constraints"
             " WHERE owner = ? AND constraint_name = ?",
             (r["ref_owner"], r["ref_constraint"]),
         ).fetchone()
-        ref_cols = (
-            _constraint_columns(conn, r["ref_owner"], r["ref_constraint"])
+        ref_raw = (
+            _raw_constraint_columns(conn, r["ref_owner"], r["ref_constraint"])
             if ref
             else []
         )
-        if not cols or ref is None or not ref_cols:
+        if not raw or ref is None or not ref_raw:
             residue.append(
                 Residue(
                     r["owner"],
@@ -589,15 +724,27 @@ def _emit_foreign_keys(
                 )
             )
             continue
+        reason = _constraint_guard(
+            conn, r["owner"], r["table_name"], raw, emitted, unique=False
+        ) or _constraint_guard(
+            conn, r["ref_owner"], ref["table_name"], ref_raw, emitted, unique=False
+        )
+        if reason is not None:
+            residue.append(
+                Residue(r["owner"], r["constraint_name"], "foreign key", reason)
+            )
+            continue
         action = ""
         if (r["delete_rule"] or "").upper() == "CASCADE":
             action = " ON DELETE CASCADE"
         elif (r["delete_rule"] or "").upper() == "SET NULL":
             action = " ON DELETE SET NULL"
+        cols = ", ".join(ident(c) for c in raw)
+        ref_cols = ", ".join(ident(c) for c in ref_raw)
         out.append(
             f"ALTER TABLE {ident(r['table_name'])} ADD CONSTRAINT"
-            f" {ident(r['constraint_name'])} FOREIGN KEY ({', '.join(cols)})"
-            f" REFERENCES {ident(ref['table_name'])} ({', '.join(ref_cols)}){action};"
+            f" {ident(r['constraint_name'])} FOREIGN KEY ({cols})"
+            f" REFERENCES {ident(ref['table_name'])} ({ref_cols}){action};"
         )
         count += 1
     if rows:
@@ -605,8 +752,26 @@ def _emit_foreign_keys(
     return count
 
 
+def _fold_expression(expression: str) -> str | None:
+    """An index expression folded to converted identifiers, or None."""
+    try:
+        parsed = sqlglot.parse(f"SELECT {expression}", dialect="oracle")
+        tree = parsed[0] if parsed else None
+        if tree is None:
+            return None
+        select = _fold_identifiers(tree).find(exp.Select)
+        if select is None or not select.expressions:
+            return None
+        return str(select.expressions[0].sql(dialect="postgres"))
+    except SqlglotError:
+        return None
+
+
 def _emit_indexes(
-    conn: sqlite3.Connection, out: list[str], residue: list[Residue]
+    conn: sqlite3.Connection,
+    out: list[str],
+    residue: list[Residue],
+    emitted: dict[tuple[str, str], set[str]],
 ) -> int:
     """Secondary indexes; constraint-backed and generated ones are the
     constraints' business and never emitted twice."""
@@ -619,8 +784,18 @@ def _emit_indexes(
         "   WHERE c.owner = i.owner AND c.constraint_name = i.index_name)"
         " ORDER BY i.owner, i.table_name, i.index_name",
     ).fetchall()
-    emitted = False
+    wrote = False
     for r in rows:
+        if (r["owner"], r["table_name"]) not in emitted:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["index_name"],
+                    "index",
+                    "its table is outside the converted set",
+                )
+            )
+            continue
         itype = (r["index_type"] or "NORMAL").upper()
         if itype not in ("NORMAL", "FUNCTION-BASED NORMAL", "BITMAP"):
             residue.append(
@@ -656,7 +831,14 @@ def _emit_indexes(
                         " recreate it from the source"
                     )
                     break
-                parts.append(f"({expression})")
+                folded = _fold_expression(expression)
+                if folded is None:
+                    skip_reason = (
+                        "index expression could not be translated;"
+                        " recreate it from the source"
+                    )
+                    break
+                parts.append(f"({folded})")
             elif (c["column_name"] or "").upper().startswith("SYS_NC"):
                 skip_reason = (
                     "hidden function-based column without its expression;"
@@ -705,9 +887,9 @@ def _emit_indexes(
             f"CREATE {unique}INDEX {ident(r['index_name'])}"
             f" ON {ident(r['table_name'])} ({', '.join(parts)});"
         )
-        emitted = True
+        wrote = True
         count += 1
-    if emitted:
+    if wrote:
         out.append("")
     return count
 
@@ -733,8 +915,51 @@ def _fold_identifiers(tree: Expr) -> Expr:
     return tree
 
 
+_PARTITION_SCOPED = re.compile(r"\bPARTITION\s*\(", re.IGNORECASE)
+_OBJECT_METHOD = re.compile(r"\b\w+\.\w+\.\w+\s*\(")
+
+
+def _view_guard(
+    tree: Expr,
+    view_name: str,
+    emitted: dict[tuple[str, str], set[str]],
+    dropped: dict[tuple[str, str], set[str]],
+    created_views: set[str],
+    folded_sql: str,
+) -> str | None:
+    """Why a view cannot be emitted faithfully, or None."""
+    referenced: list[str] = []
+    for node in tree.walk():
+        if isinstance(node, exp.Table):
+            tname = node.name.upper()
+            if "@" in node.name:
+                return "reads through a database link"
+            referenced.append(tname)
+    known = {t for (_, t) in emitted} | created_views | {view_name.upper()}
+    for tname in referenced:
+        if tname not in known:
+            return f"references {tname}, which is not in the converted set"
+    if _OBJECT_METHOD.search(folded_sql):
+        return "uses object-relational methods that have no counterpart"
+    sources = [t for t in referenced if t != view_name.upper()]
+    if len(set(sources)) == 1:
+        gone = set()
+        for (_owner, t), cols in dropped.items():
+            if t == sources[0]:
+                gone |= cols
+        tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_$#]*", folded_sql)
+        lost = sorted({t.upper() for t in tokens} & gone)
+        if lost:
+            return f"references {lost[0]}, a column that was not converted"
+    return None
+
+
 def _emit_views(
-    conn: sqlite3.Connection, out: list[str], residue: list[Residue]
+    conn: sqlite3.Connection,
+    out: list[str],
+    residue: list[Residue],
+    emitted: dict[tuple[str, str], set[str]],
+    dropped: dict[tuple[str, str], set[str]],
 ) -> int:
     """Views via transpile of the stored DDL, in dependency order."""
     rows = conn.execute(
@@ -762,10 +987,24 @@ def _emit_views(
     by_name = {r["name"]: r for r in rows}
 
     count = 0
-    emitted = False
+    wrote = False
+    created_views: set[str] = set()
     for name in ordered:
         r = by_name[name]
         text = _VIEW_HEADER_NOISE.sub("", r["ddl"] or "")
+        if _PARTITION_SCOPED.search(text):
+            # sqlglot silently mangles FROM t PARTITION (p) into an
+            # alias, so the shape is refused before parsing.
+            residue.append(
+                Residue(
+                    r["owner"],
+                    name,
+                    "view",
+                    "uses a partition-scoped query; PostgreSQL reads the"
+                    " child table directly - rewrite by hand",
+                )
+            )
+            continue
         for pattern, replacement in PARSE_NORMALIZATIONS:
             text = pattern.sub(replacement, text)
         try:
@@ -790,7 +1029,8 @@ def _emit_views(
             # Oracle (+) outer joins become ANSI joins; the rule is a
             # no-op on queries without join marks.
             tree = eliminate_join_marks(tree)
-            statement = _fold_identifiers(tree).sql(
+            tree = _fold_identifiers(tree)
+            statement = tree.sql(
                 dialect="postgres", unsupported_level=ErrorLevel.RAISE, pretty=True
             )
         except SqlglotError as exc:
@@ -804,11 +1044,16 @@ def _emit_views(
                 )
             )
             continue
+        guard = _view_guard(tree, name, emitted, dropped, created_views, statement)
+        if guard is not None:
+            residue.append(Residue(r["owner"], name, "view", guard))
+            continue
         out.append(statement + ";")
         out.append("")
-        emitted = True
+        created_views.add(name.upper())
+        wrote = True
         count += 1
-    if emitted and out and out[-1] != "":
+    if wrote and out and out[-1] != "":
         out.append("")
     return count
 
