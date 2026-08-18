@@ -4,6 +4,27 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
 ## Unreleased
 
+- The converter grows a code lane: standalone functions and
+  procedures whose every construct is provably equivalent convert
+  mechanically to PL/pgSQL - headers, parameter modes and defaults,
+  a documented type mapping for declarations, cursor declarations,
+  cursor%ROWTYPE as record variables, NVL to COALESCE, SYSDATE to
+  CURRENT_TIMESTAMP, sequence NEXTVAL to nextval validated against
+  extracted sequences, DBMS_OUTPUT.PUT_LINE to RAISE NOTICE,
+  EXECUTE IMMEDIATE to EXECUTE, q-quoted literals, FROM DUAL
+  removal, and exception conditions mapped only where behavior
+  matches (DUP_VAL_ON_INDEX, ZERO_DIVIDE). Comments and formatting
+  survive, because edits splice the original source. Everything
+  semantic refuses by name and line into the residue report -
+  autonomous transactions, REF CURSOR, BULK COLLECT and FORALL,
+  collections, CONNECT BY, ROWNUM, DECODE, cursor attributes,
+  unproven calls and anchors - and a unit that calls a refused unit
+  refuses with it. Function bodies validate on the target with
+  check_function_bodies on, never disabled.
+- Expression guards walk the re-parsed syntax tree instead of
+  matching text, so a string literal that merely mentions SYS_GUID
+  stays innocent while real calls still decline, and TO_DATE guards
+  inspect the actual first argument.
 - The converter covers the rest of schema structure: sequences
   restarted at their extracted position with bigint-safe bounds,
   schema-local synonyms as updatable views, database links

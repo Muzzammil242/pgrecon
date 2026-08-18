@@ -325,6 +325,19 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
             " statement text against PostgreSQL"
         )
 
+    def enterInto_clause(self, ctx: Any) -> None:
+        # Oracle SELECT INTO raises NO_DATA_FOUND on zero rows and
+        # TOO_MANY_ROWS past one; plain plpgsql INTO does neither.
+        # STRICT is the equivalent, for static and dynamic queries
+        # alike. RETURNING INTO already behaves the same on both.
+        parent = type(ctx.parentCtx).__name__
+        if parent not in ("Query_blockContext", "Execute_immediateContext"):
+            return
+        for tok in self._terminals(ctx):
+            if tok.type == L.INTO:
+                self._edit(tok.start, tok.stop, "INTO STRICT")
+                return
+
     def enterSavepoint_statement(self, ctx: Any) -> None:
         self._reason(
             ctx,

@@ -192,7 +192,7 @@ def test_happy_function_converts_mechanically(code_db: Path) -> None:
     assert "IMMUTABLE" in sql
     assert "COALESCE(p_kind" in sql
     assert "'it''s flat'" in sql
-    assert "nextval('ref_seq')" in sql
+    assert "nextval('ref_seq') INTO STRICT v_fee" in sql
     assert "CURRENT_TIMESTAMP" in sql
     assert "SYSDATE" not in sql
     assert "DUAL" not in sql
