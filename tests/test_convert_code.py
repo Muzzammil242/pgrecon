@@ -99,6 +99,21 @@ BEGIN
   p := p + 1;
 END inout_p;"""
 
+ROWTYPE_P = """PROCEDURE rowtype_p IS
+  CURSOR c1 IS SELECT kind, fee FROM t_fees;
+  r c1%ROWTYPE;
+BEGIN
+  OPEN c1;
+  FETCH c1 INTO r;
+  CLOSE c1;
+END rowtype_p;"""
+
+ROWBAD_P = """PROCEDURE rowbad_p IS
+  bad other_tab%ROWTYPE;
+BEGIN
+  NULL;
+END rowbad_p;"""
+
 _UNITS = [
     ("FEE_FOR", "FUNCTION", FEE_FOR),
     ("AUTON_P", "PROCEDURE", AUTON_P),
@@ -112,6 +127,8 @@ _UNITS = [
     ("TDATE_P", "PROCEDURE", TDATE_P),
     ("OUT_FN", "FUNCTION", OUT_FN),
     ("INOUT_P", "PROCEDURE", INOUT_P),
+    ("ROWTYPE_P", "PROCEDURE", ROWTYPE_P),
+    ("ROWBAD_P", "PROCEDURE", ROWBAD_P),
 ]
 
 
@@ -245,8 +262,15 @@ def test_refusal_cascades_to_callers(code_db: Path) -> None:
 
 def test_routine_count_matches_emitted(code_db: Path) -> None:
     result = convert_schema(code_db)
-    assert result.routines == 3
-    assert result.sql.count("LANGUAGE plpgsql") == 3
+    assert result.routines == 4
+    assert result.sql.count("LANGUAGE plpgsql") == 4
+
+
+def test_cursor_rowtype_becomes_record(code_db: Path) -> None:
+    result = convert_schema(code_db)
+    assert "r record;" in result.sql
+    reason = _residue_reason(result, "ROWBAD_P")
+    assert "OTHER_TAB" in reason and "%ROWTYPE" in reason
 
 
 def test_packages_triggers_types_land_in_residue(code_db: Path) -> None:

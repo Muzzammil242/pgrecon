@@ -396,7 +396,8 @@ def _emit_code(
         reasons += call_reasons + dep_reasons
         if not reasons:
             text = _unit_text(conn, owner, name, otype)
-            result = rewrite_unit(text, otype, sequences)
+            relations = tables | created_views | synonyms
+            result = rewrite_unit(text, otype, sequences, relations)
             reasons += list(result.reasons)
             notes += list(result.notes)
             sql = result.sql

@@ -25,6 +25,17 @@ class Mapped:
     note: str | None = None
 
 
+def _fractional(base: str, digits: str) -> Mapped:
+    """A timestamp precision, clamped to PostgreSQL's ceiling of 6."""
+    precision = int(digits)
+    if precision > 6:
+        return Mapped(
+            f"{base}(6)",
+            "fractional seconds beyond microseconds are truncated",
+        )
+    return Mapped(f"{base}({precision})")
+
+
 def map_type(
     data_type: str | None,
     length: int | None,
@@ -74,14 +85,15 @@ def map_type(
         )
     m = _TIMESTAMP.match(dtype)
     if m:
-        return Mapped(f"timestamp({m.group(1)})")
+        return _fractional("timestamp", m.group(1))
     m = _TIMESTAMP_TZ.match(dtype)
     if m:
-        return Mapped(f"timestamptz({m.group(1)})")
+        return _fractional("timestamptz", m.group(1))
     m = _TIMESTAMP_LTZ.match(dtype)
     if m:
+        clamped = _fractional("timestamptz", m.group(1))
         return Mapped(
-            f"timestamptz({m.group(1)})",
+            clamped.pg_type,
             "LOCAL TIME ZONE display semantics move to the client timezone setting",
         )
     if _INTERVAL_YM.match(dtype) or _INTERVAL_DS.match(dtype):
@@ -136,6 +148,8 @@ def map_code_type(text: str) -> Mapped:
     m = _SIZED.match(dtype)
     if m:
         base = m.group(1).strip()
+        if base == "TIMESTAMP":
+            return _fractional("timestamp", m.group(2))
         if base in ("NUMBER", "DECIMAL", "NUMERIC", "FLOAT"):
             precision = int(m.group(2))
             scale = int(m.group(4)) if m.group(4) else None

@@ -14,7 +14,7 @@ from typing import Any
 from antlr4 import ParseTreeWalker
 from antlr4.tree.Tree import TerminalNode
 
-from pgrecon.convert.identifiers import ident
+from pgrecon.convert.identifiers import _PLAIN_IDENT, _RESERVED, ident
 from pgrecon.convert.typemap import map_code_type
 from pgrecon.plsql import parse_source
 from pgrecon.plsql._generated.PlSqlLexer import PlSqlLexer as L
@@ -45,16 +45,42 @@ class RewriteResult:
     notes: tuple[str, ...]
 
 
+def _fold_written(name: str) -> str:
+    """A name as written in source, folded the way ident() folds.
+
+    Generated DDL writes '"ADD_DATA"'; the converted schema knows that
+    object as add_data. Anything not plainly foldable stays verbatim.
+    """
+    if len(name) > 2 and name[0] == '"' and name[-1] == '"':
+        inner = name[1:-1]
+        if (
+            inner == inner.upper()
+            and _PLAIN_IDENT.match(inner.lower())
+            and inner.lower() not in _RESERVED
+        ):
+            return inner.lower()
+    return name
+
+
 class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
-    def __init__(self, text: str, is_function: bool, sequences: set[str]) -> None:
+    def __init__(
+        self,
+        text: str,
+        is_function: bool,
+        sequences: set[str],
+        relations: set[str],
+    ) -> None:
         self.text = text
         self.is_function = is_function
         self.sequences = sequences
+        self.relations = relations
         self.edits: list[tuple[int, int, str]] = []
         self.reasons: list[str] = []
         self.notes: list[str] = []
         self.suppressed: list[tuple[int, int]] = []
         self.declares = False
+        self.cursors: set[str] = set()
+        self.locals: set[str] = set()
 
     # -- plumbing ---------------------------------------------------
 
@@ -92,7 +118,8 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
         if not any(t.type == L.LEFT_PAREN for t in terminals):
             name = ctx.function_name() if self.is_function else ctx.procedure_name()
             if name is not None:
-                self._edit_ctx(name, self._span_text(name) + "()")
+                self._edit_ctx(name, _fold_written(self._span_text(name)) + "()")
+                self.suppressed.append((name.start.start, name.stop.stop))
         if ctx.seq_of_declare_specs() is not None:
             self.declares = True
         body = ctx.body()
@@ -130,6 +157,9 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
     # -- parameters -------------------------------------------------
 
     def enterParameter(self, ctx: Any) -> None:
+        pname = ctx.parameter_name()
+        if pname is not None:
+            self.locals.add(pname.getText().strip('"').upper())
         modes = [t for t in self._terminals(ctx) if t.type in (L.IN, L.OUT, L.INOUT)]
         has_in = any(t.type == L.IN for t in modes)
         has_out = any(t.type == L.OUT for t in modes)
@@ -162,7 +192,9 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
     # -- declarations -----------------------------------------------
 
     def enterType_spec(self, ctx: Any) -> None:
-        if ctx.PERCENT_TYPE() is not None or ctx.PERCENT_ROWTYPE() is not None:
+        anchored = ctx.PERCENT_TYPE() is not None or ctx.PERCENT_ROWTYPE() is not None
+        if anchored:
+            self._anchored_type(ctx)
             return
         datatype = ctx.datatype()
         if datatype is None:
@@ -178,10 +210,58 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
             return
         self._edit_ctx(datatype, mapped.pg_type)
 
+    def _anchored_type(self, ctx: Any) -> None:
+        """%TYPE and %ROWTYPE survive only when their anchor will exist.
+
+        PostgreSQL resolves the anchor at CREATE time against real
+        relations and earlier declarations. A cursor%ROWTYPE anchor
+        becomes a record variable, which is what FETCH INTO fills
+        either way; anything unprovable refuses.
+        """
+        name = ctx.type_name()
+        if name is None:
+            return
+        parts = [p.strip('"').upper() for p in name.getText().split(".")]
+        rowtype = ctx.PERCENT_ROWTYPE() is not None
+        if rowtype:
+            if len(parts) == 1 and parts[0] in self.cursors:
+                self._edit_ctx(ctx, "record")
+                return
+            if parts[-1] in self.relations:
+                return
+            self._reason(
+                ctx,
+                f"%ROWTYPE anchor {parts[-1]} is not a converted"
+                " relation; declare the record by hand",
+            )
+            return
+        if len(parts) == 1:
+            if parts[0] in self.locals:
+                return
+            self._reason(
+                ctx,
+                f"%TYPE anchor {parts[0]} is not a local declaration;"
+                " name the type by hand",
+            )
+            return
+        if parts[-2] in self.relations:
+            return
+        self._reason(
+            ctx,
+            f"%TYPE anchor {parts[-2]} is not a converted relation;"
+            " name the type by hand",
+        )
+
+    def enterVariable_declaration(self, ctx: Any) -> None:
+        name = ctx.identifier()
+        if name is not None:
+            self.locals.add(name.getText().strip('"').upper())
+
     def enterCursor_declaration(self, ctx: Any) -> None:
         name = ctx.identifier()
         if name is None:
             return
+        self.cursors.add(name.getText().strip('"').upper())
         for tok in self._terminals(ctx):
             if tok.type == L.CURSOR:
                 self._edit(tok.start, tok.stop, "")
@@ -368,6 +448,10 @@ def _scan_tokens(rewriter: _Rewriter, stream: Any) -> None:
             standard = _q_literal(tok.text or "")
             if standard is not None:
                 rewriter._edit(tok.start, tok.stop, standard)
+        elif tok.type == L.DELIMITED_ID:
+            folded = _fold_written(tok.text or "")
+            if folded != (tok.text or ""):
+                rewriter._edit(tok.start, tok.stop, folded)
         elif tok.type in _CURSOR_ATTRIBUTES and (prev is None or prev.type != L.SQL):
             rewriter.reasons.append(
                 "cursor attributes become the FOUND variable or GET"
@@ -456,7 +540,9 @@ def _apply(text: str, edits: list[tuple[int, int, str]]) -> str | None:
     return "".join(parts)
 
 
-def rewrite_unit(text: str, unit_type: str, sequences: set[str]) -> RewriteResult:
+def rewrite_unit(
+    text: str, unit_type: str, sequences: set[str], relations: set[str]
+) -> RewriteResult:
     """One stored FUNCTION or PROCEDURE as PostgreSQL DDL, or reasons.
 
     The input is the unit exactly as ALL_SOURCE stored it, starting at
@@ -469,7 +555,7 @@ def rewrite_unit(text: str, unit_type: str, sequences: set[str]) -> RewriteResul
         first = parse.errors[0] if parse.errors else "no parse tree"
         return RewriteResult(None, (f"did not parse cleanly ({first})",), ())
     full = "CREATE OR REPLACE " + text.rstrip()
-    rewriter = _Rewriter(full, unit_type.upper() == "FUNCTION", sequences)
+    rewriter = _Rewriter(full, unit_type.upper() == "FUNCTION", sequences, relations)
     ParseTreeWalker.DEFAULT.walk(rewriter, parse.tree)
     _scan_tokens(rewriter, parse.tokens)
     notes = tuple(dict.fromkeys(rewriter.notes))
