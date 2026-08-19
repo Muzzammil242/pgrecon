@@ -141,6 +141,9 @@ def _fold_identifiers(tree: Expr) -> Expr:
                 expression=exp.Literal.string(""),
             )
         )
+    stamps = [node for node in tree.walk() if _func_name(node) == "SYSTIMESTAMP"]
+    for node in stamps:
+        node.replace(exp.CurrentTimestamp())
     return tree
 
 
@@ -214,7 +217,7 @@ def _default_guard(folded: str) -> str | None:
         return "expression could not be re-checked; rewrite it by hand"
     for node in tree.walk():
         name = _func_name(node)
-        if name in _UNSUPPORTED_EXPR_FUNCS:
+        if name in _UNSUPPORTED_EXPR_FUNCS or name.startswith("SYS_OP_"):
             return (
                 f"{name} has no PostgreSQL counterpart here; choose a"
                 " replacement by hand"

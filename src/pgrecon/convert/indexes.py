@@ -25,6 +25,19 @@ def _emit_indexes(
     ).fetchall()
     wrote = False
     for r in rows:
+        if (r["index_name"] or "").upper().startswith("I_SNAP$"):
+            # Oracle maintains these itself to support fast-refresh
+            # materialized views; PostgreSQL needs no counterpart.
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["index_name"],
+                    "note",
+                    "Oracle-internal materialized view support index;"
+                    " nothing to create on PostgreSQL",
+                )
+            )
+            continue
         if (r["owner"], r["table_name"]) not in emitted:
             residue.append(
                 Residue(

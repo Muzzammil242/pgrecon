@@ -4,6 +4,15 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
 ## Unreleased
 
+- Five emission guards from a nine-schema live sweep: Oracle identity
+  columns (ISEQ$$ defaults) become integer identity columns instead of
+  leaking their internal sequence reference; SYSTIMESTAMP folds to
+  CURRENT_TIMESTAMP in expressions; SYS_OP_* internal functions refuse
+  in defaults and index expressions; Oracle's I_SNAP$ materialized
+  view support indexes are skipped with a note; object views refuse by
+  name. Database links now ship as a commented oracle_fdw recipe
+  rather than live DDL, keeping every emitted statement applicable on
+  a vanilla server.
 - Concatenation carries Oracle's NULL semantics: every || chain
   becomes NULLIF(concat(...), ''), in PL/SQL bodies and trigger
   functions through the mechanical rewriter and in views, check

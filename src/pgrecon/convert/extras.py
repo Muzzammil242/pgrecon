@@ -157,16 +157,19 @@ def _emit_db_links(
     ).fetchall()
     count = 0
     for r in rows:
+        # The scaffold ships commented: it needs the oracle_fdw
+        # extension, credentials, and foreign tables - a recipe to
+        # complete, not DDL that applies on a vanilla server.
         if count == 0:
-            out.append("CREATE EXTENSION IF NOT EXISTS oracle_fdw;")
+            out.append("-- CREATE EXTENSION IF NOT EXISTS oracle_fdw;")
         link = ident((r["db_link"] or "").split(".")[0])
         out.append(
-            f"CREATE SERVER {link} FOREIGN DATA WRAPPER oracle_fdw"
+            f"-- CREATE SERVER {link} FOREIGN DATA WRAPPER oracle_fdw"
             f" OPTIONS (dbserver '{(r['host'] or '').replace(chr(39), '')}');"
         )
         user = (r["username"] or "").replace("'", "")
         out.append(
-            f"CREATE USER MAPPING FOR CURRENT_USER SERVER {link}"
+            f"-- CREATE USER MAPPING FOR CURRENT_USER SERVER {link}"
             f" OPTIONS (\"user\" '{user}', password '');"
         )
         residue.append(
@@ -174,9 +177,10 @@ def _emit_db_links(
                 r["owner"],
                 r["db_link"],
                 "note",
-                "database link scaffolded as an oracle_fdw server;"
-                " complete the credentials and define foreign tables"
-                " for what the link serves",
+                "database link scaffolded as a commented oracle_fdw"
+                " recipe; install the extension, complete the"
+                " credentials, and define foreign tables for what the"
+                " link serves",
             )
         )
         count += 1

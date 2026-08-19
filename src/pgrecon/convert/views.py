@@ -18,6 +18,8 @@ _VIEW_HEADER_NOISE = re.compile(
 
 _PARTITION_SCOPED = re.compile(r"\bPARTITION\s*\(", re.IGNORECASE)
 
+_OBJECT_VIEW = re.compile(r"\bVIEW\s+\"?[^\s(]+\s+OF\s", re.IGNORECASE)
+
 
 def _view_guard(
     tree: Expr,
@@ -94,6 +96,17 @@ def _emit_views(
     for name in ordered:
         r = by_name[name]
         text = _VIEW_HEADER_NOISE.sub("", r["ddl"] or "")
+        if _OBJECT_VIEW.search(text) or "WITH OBJECT IDENTIFIER" in text.upper():
+            residue.append(
+                Residue(
+                    r["owner"],
+                    name,
+                    "view",
+                    "object views are built on object types, which have"
+                    " no counterpart; port the type and view by hand",
+                )
+            )
+            continue
         if _PARTITION_SCOPED.search(text):
             # sqlglot silently mangles FROM t PARTITION (p) into an
             # alias, so the shape is refused before parsing.
