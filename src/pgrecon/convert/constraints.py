@@ -98,9 +98,27 @@ def _emit_keys(
             continue
         kind = "PRIMARY KEY" if r["type"] == "P" else "UNIQUE"
         cols = ", ".join(ident(c) for c in raw)
+        name = ident(r["constraint_name"])
+        # Oracle keeps constraints in their own namespace; PostgreSQL
+        # backs PRIMARY KEY and UNIQUE with an index that shares the
+        # relation namespace, so a constraint named after a table
+        # collides with it.
+        if (r["constraint_name"] or "").upper() in {t for (_, t) in emitted}:
+            suffix = "_pk" if r["type"] == "P" else "_uk"
+            name = ident(r["constraint_name"] + suffix.upper())
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["constraint_name"],
+                    "note",
+                    f"shares its name with a table; created as"
+                    f" {name} because PostgreSQL backs the constraint"
+                    " with an index in the relation namespace",
+                )
+            )
         out.append(
             f"ALTER TABLE {ident(r['table_name'])} ADD CONSTRAINT"
-            f" {ident(r['constraint_name'])} {kind} ({cols});"
+            f" {name} {kind} ({cols});"
         )
         count += 1
     if rows:

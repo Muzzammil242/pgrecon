@@ -33,6 +33,34 @@ def emit_tables(
     table_count = 0
     partition_count = 0
 
+    # Identity columns become integer identity columns; a foreign key
+    # cannot span numeric and bigint, so every column referencing an
+    # identity key widens to bigint with it.
+    identity_cols = {
+        ((r["table_name"] or "").upper(), (r["column_name"] or "").upper())
+        for r in conn.execute(
+            "SELECT table_name, column_name, default_text FROM column_defaults"
+        )
+        if _IDENTITY_DEFAULT.search(r["default_text"] or "")
+    }
+    promoted = {
+        ((fk["tab"] or "").upper(), (fk["col"] or "").upper())
+        for fk in conn.execute(
+            "SELECT c.table_name AS tab, cc.column_name AS col,"
+            " rc.table_name AS rtab, rcc.column_name AS rcol"
+            " FROM constraints c"
+            " JOIN constraint_columns cc ON cc.owner = c.owner"
+            "  AND cc.constraint_name = c.constraint_name"
+            " JOIN constraints rc ON rc.owner = c.ref_owner"
+            "  AND rc.constraint_name = c.ref_constraint"
+            " JOIN constraint_columns rcc ON rcc.owner = rc.owner"
+            "  AND rcc.constraint_name = rc.constraint_name"
+            "  AND rcc.position = cc.position"
+            " WHERE c.type = 'R'"
+        )
+        if ((fk["rtab"] or "").upper(), (fk["rcol"] or "").upper()) in identity_cols
+    }
+
     tables = conn.execute(
         "SELECT owner, table_name, temporary FROM tables ORDER BY owner, table_name"
     ).fetchall()
@@ -80,6 +108,17 @@ def emit_tables(
             null = "" if (c["nullable"] or "Y") == "Y" else " NOT NULL"
             suffix = ""
             col_type = mapped.pg_type
+            if (table.upper(), cname) in promoted:
+                col_type = "bigint"
+                residue.append(
+                    Residue(
+                        owner,
+                        f"{table}.{c['column_name']}",
+                        "note",
+                        "widened to bigint to match the identity column"
+                        " its foreign key references",
+                    )
+                )
             extra = extras.get(cname)
             if extra is not None and (extra["virtual"] or "NO") == "YES":
                 expr = (

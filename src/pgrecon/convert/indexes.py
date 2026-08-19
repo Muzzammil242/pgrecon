@@ -136,8 +136,24 @@ def _emit_indexes(
                 )
             )
         unique = "UNIQUE " if (r["uniqueness"] or "").upper() == "UNIQUE" else ""
+        name = ident(r["index_name"])
+        # Oracle indexes live in their own namespace; PostgreSQL puts
+        # them beside tables, so an index named after a table needs a
+        # different name.
+        if (r["index_name"] or "").upper() in {t for (_, t) in emitted}:
+            name = ident(r["index_name"] + "_IX")
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["index_name"],
+                    "note",
+                    f"shares its name with a table; created as {name}"
+                    " because PostgreSQL keeps indexes in the relation"
+                    " namespace",
+                )
+            )
         out.append(
-            f"CREATE {unique}INDEX {ident(r['index_name'])}"
+            f"CREATE {unique}INDEX {name}"
             f" ON {ident(r['table_name'])} ({', '.join(parts)});"
         )
         wrote = True
