@@ -4,6 +4,15 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
 ## Unreleased
 
+- Concatenation carries Oracle's NULL semantics: every || chain
+  becomes NULLIF(concat(...), ''), in PL/SQL bodies and trigger
+  functions through the mechanical rewriter and in views, check
+  conditions, defaults, and trigger WHEN clauses through the
+  expression folding. Oracle treats NULL as the empty string where
+  PostgreSQL || yields NULL; concat() ignores NULLs, and NULLIF
+  restores the one case Oracle does return NULL - every part empty.
+  Inner rewrites (SYSDATE, NVL, bind folding) compose inside the
+  operands, and Oracle's CONCAT() function folds the same way.
 - Triggers convert: a simple DML trigger becomes a trigger function
   plus the CREATE TRIGGER statement PostgreSQL wants. :NEW and :OLD
   lose their colons, INSERTING/UPDATING/DELETING become TG_OP tests,

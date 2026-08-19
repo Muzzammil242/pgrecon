@@ -65,7 +65,7 @@ AFTER INSERT OR UPDATE OR DELETE ON t_fees
 FOR EACH ROW
 WHEN (new.fee > 0)
 BEGIN
-  DBMS_OUTPUT.PUT_LINE('fee touched');
+  DBMS_OUTPUT.PUT_LINE('fee: ' || :NEW.fee);
 END;"""
 
 _TRIGGERS = [
@@ -203,6 +203,12 @@ def test_new_reference_with_delete_moves_when_into_body(trigger_db: Path) -> Non
     assert "CREATE TRIGGER trg_whendel AFTER insert OR update OR delete" in result.sql
     header = result.sql.split("CREATE TRIGGER trg_whendel", 1)[1].split(";", 1)[0]
     assert "WHEN" not in header
+
+
+def test_trigger_body_concatenation_null_safe(trigger_db: Path) -> None:
+    result = convert_schema(trigger_db)
+    section = result.sql.split("trg_whendel_fn", 2)[1]
+    assert "NULLIF(concat('fee: ' , NEW.fee), '')" in section
 
 
 def test_trigger_count(trigger_db: Path) -> None:

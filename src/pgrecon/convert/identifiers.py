@@ -96,12 +96,31 @@ def ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _concat_parts(node: Expr) -> list[Expr]:
+    """The operands of a concatenation, flattened across its links."""
+    if isinstance(node, exp.DPipe):
+        return _concat_parts(node.this) + _concat_parts(node.expression)
+    if isinstance(node, exp.Concat):
+        parts: list[Expr] = []
+        for operand in node.expressions:
+            parts.extend(_concat_parts(operand))
+        return parts
+    return [node]
+
+
 def _fold_identifiers(tree: Expr) -> Expr:
     """Lowercase and unquote identifiers; drop schema qualifiers.
 
     DBMS_METADATA quotes every identifier in uppercase; carried as-is
     the view would reference "EMP" while the converted table is emp.
     Single-schema conversion also drops the owner prefix.
+
+    Concatenation chains become NULLIF(concat(...), ''): Oracle ||
+    treats NULL as the empty string where PostgreSQL || yields NULL,
+    concat() ignores NULLs, and NULLIF restores the one case Oracle
+    does return NULL - every part empty, since in Oracle '' IS NULL.
+    The concat call is emitted anonymously because sqlglot renders its
+    own Concat node back to || on the postgres dialect.
     """
     for node in tree.walk():
         if isinstance(node, exp.Identifier):
@@ -109,6 +128,19 @@ def _fold_identifiers(tree: Expr) -> Expr:
             node.set("quoted", not _PLAIN_IDENT.match(node.name.lower()))
         if isinstance(node, exp.Table | exp.Column) and node.args.get("db"):
             node.set("db", None)
+    chains = [
+        node
+        for node in tree.walk()
+        if isinstance(node, exp.DPipe | exp.Concat)
+        and not isinstance(node.parent, exp.DPipe | exp.Concat)
+    ]
+    for chain in chains:
+        chain.replace(
+            exp.Nullif(
+                this=exp.Anonymous(this="concat", expressions=_concat_parts(chain)),
+                expression=exp.Literal.string(""),
+            )
+        )
     return tree
 
 

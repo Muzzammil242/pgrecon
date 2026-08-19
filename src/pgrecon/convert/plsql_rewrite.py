@@ -440,6 +440,29 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
             else:
                 self._edit_ctx(routine, f"CALL {spelled}")
 
+    def enterConcatenation(self, ctx: Any) -> None:
+        # Oracle || treats NULL as the empty string; PostgreSQL ||
+        # yields NULL when any part is NULL. concat() ignores NULLs,
+        # and NULLIF restores the one case where Oracle does return
+        # NULL: every part empty, because in Oracle '' IS NULL.
+        if len(ctx.BAR()) != 2:
+            return
+        parent = ctx.parentCtx
+        if type(parent).__name__ == "ConcatenationContext" and len(parent.BAR()) == 2:
+            return
+        links: list[Any] = []
+        stack = [ctx]
+        while stack:
+            node = stack.pop()
+            bars = node.BAR()
+            if len(bars) == 2:
+                links.append(bars)
+                stack.extend(node.concatenation())
+        self._edit(ctx.start.start, ctx.start.start - 1, "NULLIF(concat(")
+        for first, second in links:
+            self._edit(first.symbol.start, second.symbol.stop, ",")
+        self._edit(ctx.stop.stop + 1, ctx.stop.stop, "), '')")
+
     def enterException_handler(self, ctx: Any) -> None:
         for name in ctx.exception_name():
             self._condition(name)

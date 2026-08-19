@@ -164,6 +164,15 @@ BEGIN
   inout_p(v);
 END pcall_p;"""
 
+CONCAT3_P = """PROCEDURE concat3_p(p VARCHAR2) IS
+  v VARCHAR2(100);
+BEGIN
+  v := 'a' || p || 'b';
+  v := 'a' || (p || 'b');
+  EXECUTE IMMEDIATE 'insert into t_fees (kind) values (:k)'
+    USING v || 'x';
+END concat3_p;"""
+
 _UNITS = [
     ("FEE_FOR", "FUNCTION", FEE_FOR),
     ("AUTON_P", "PROCEDURE", AUTON_P),
@@ -185,6 +194,7 @@ _UNITS = [
     ("BINDS_LOOSE_P", "PROCEDURE", BINDS_LOOSE_P),
     ("BINDS_OUT_P", "PROCEDURE", BINDS_OUT_P),
     ("PCALL_P", "PROCEDURE", PCALL_P),
+    ("CONCAT3_P", "PROCEDURE", CONCAT3_P),
 ]
 
 
@@ -318,8 +328,25 @@ def test_refusal_cascades_to_callers(code_db: Path) -> None:
 
 def test_routine_count_matches_emitted(code_db: Path) -> None:
     result = convert_schema(code_db)
-    assert result.routines == 8
-    assert result.sql.count("LANGUAGE plpgsql") == 8
+    assert result.routines == 9
+    assert result.sql.count("LANGUAGE plpgsql") == 9
+
+
+def test_concatenation_carries_oracle_null_semantics(code_db: Path) -> None:
+    # Oracle || treats NULL as '', PostgreSQL || yields NULL; the
+    # chain becomes NULLIF(concat(...), '') with inner rewrites like
+    # SYSDATE and NVL composing inside the operands.
+    result = convert_schema(code_db)
+    sql = result.sql
+    assert "v := NULLIF(concat('a' , p , 'b'), '');" in sql
+    assert "NULLIF(concat('a' , (NULLIF(concat(p , 'b'), ''))), '')" in sql
+    assert (
+        "NULLIF(concat(COALESCE(p_kind, 'it''s flat') ,"
+        " TO_CHAR(CURRENT_TIMESTAMP, 'YYYY')), '')" in sql
+    )
+    assert "NULLIF(concat('fee at ' , CURRENT_TIMESTAMP), '')" in sql
+    assert "values ($1)'" in sql
+    assert "USING NULLIF(concat(v , 'x'), '');" in sql
 
 
 def test_bare_procedure_calls_gain_call(code_db: Path) -> None:

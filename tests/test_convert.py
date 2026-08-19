@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from pgrecon.convert import convert_schema, residue_report
+from pgrecon.convert.identifiers import _fold_condition
 from pgrecon.convert.schema import ident
 from pgrecon.convert.typemap import map_type
 from pgrecon.inventory import open_db
@@ -151,6 +152,16 @@ def test_bfile_column_becomes_residue_not_ddl(facts_db: Path) -> None:
 def test_not_null_check_is_not_duplicated(facts_db: Path) -> None:
     result = convert_schema(facts_db)
     assert "emp_id_nn" not in result.sql.lower()
+
+
+def test_condition_concatenation_null_safe() -> None:
+    # The sqlglot lane (checks, defaults, trigger WHEN, views) gets
+    # the same Oracle NULL-as-empty concatenation semantics as the
+    # PL/SQL lane, for both || and Oracle's CONCAT().
+    folded = _fold_condition('"KIND" || "TAG" <> \'xy\'')
+    assert folded == "NULLIF(CONCAT(kind, tag), '') <> 'xy'"
+    folded = _fold_condition('CONCAT("KIND", "TAG") <> \'xy\'')
+    assert folded == "NULLIF(CONCAT(kind, tag), '') <> 'xy'"
 
 
 def test_date_mapping_is_noted(facts_db: Path) -> None:
