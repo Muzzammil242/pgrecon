@@ -12,7 +12,9 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   view support indexes are skipped with a note; object views refuse by
   name. Database links now ship as a commented oracle_fdw recipe
   rather than live DDL, keeping every emitted statement applicable on
-  a vanilla server.
+  a vanilla server. Divisions in folded expressions cast their
+  numerator to decimal - Oracle NUMBER arithmetic is exact decimal,
+  where the generator's double precision broke two-argument ROUND.
 - Concatenation carries Oracle's NULL semantics: every || chain
   becomes NULLIF(concat(...), ''), in PL/SQL bodies and trigger
   functions through the mechanical rewriter and in views, check
