@@ -213,6 +213,8 @@ def test_expression_guards_sysop_and_systimestamp() -> None:
     guard = _default_guard("SYS_OP_MAP_NONNULL(dname)")
     assert guard is not None and "SYS_OP_MAP_NONNULL" in guard
     assert _fold_expression("SYSTIMESTAMP") == "CURRENT_TIMESTAMP"
+    folded = _fold_expression("ROUND(net_amount * (1 + vat_rate/100), 2)")
+    assert folded == "ROUND(net_amount * (1 + CAST(vat_rate AS DECIMAL) / 100), 2)"
 
 
 def test_condition_concatenation_null_safe() -> None:

@@ -144,6 +144,14 @@ def _fold_identifiers(tree: Expr) -> Expr:
     stamps = [node for node in tree.walk() if _func_name(node) == "SYSTIMESTAMP"]
     for node in stamps:
         node.replace(exp.CurrentTimestamp())
+    # The postgres generator casts every division's numerator to
+    # double precision to avoid integer division; Oracle NUMBER
+    # arithmetic is exact decimal, and PostgreSQL's two-argument
+    # round() exists only for numeric, so cast to decimal instead -
+    # a numerator already cast by the source stays as written.
+    for node in tree.walk():
+        if isinstance(node, exp.Div) and not isinstance(node.this, exp.Cast):
+            node.set("this", exp.Cast(this=node.this, to=exp.DataType.build("DECIMAL")))
     return tree
 
 
