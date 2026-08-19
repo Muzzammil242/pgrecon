@@ -2,8 +2,26 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## Unreleased
+## 0.3.0 - 2026-08-20
 
+- Triggers convert: a simple DML trigger becomes a trigger function
+  plus the CREATE TRIGGER statement PostgreSQL wants. :NEW and :OLD
+  lose their colons, INSERTING/UPDATING/DELETING become TG_OP tests,
+  bare RETURN gains the row result, UPDATE OF column lists survive
+  from the parse tree, WHEN clauses translate through the same
+  folding as views, and disabled triggers stay disabled via ALTER
+  TABLE. Compound triggers, INSTEAD OF, system triggers, and
+  UPDATING('column') refuse by name; sequence-fed triggers convert
+  and carry a note pointing at generated identity columns.
+- Concatenation carries Oracle's NULL semantics: every || chain
+  becomes NULLIF(concat(...), ''), in PL/SQL bodies and trigger
+  functions through the mechanical rewriter and in views, check
+  conditions, defaults, and trigger WHEN clauses through the
+  expression folding. Oracle treats NULL as the empty string where
+  PostgreSQL || yields NULL; concat() ignores NULLs, and NULLIF
+  restores the one case Oracle does return NULL - every part empty.
+  Inner rewrites (SYSDATE, NVL, bind folding) compose inside the
+  operands, and Oracle's CONCAT() function folds the same way.
 - Five emission guards from a nine-schema live sweep: Oracle identity
   columns (ISEQ$$ defaults) become integer identity columns instead of
   leaking their internal sequence reference; SYSTIMESTAMP folds to
@@ -15,24 +33,6 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   a vanilla server. Divisions in folded expressions cast their
   numerator to decimal - Oracle NUMBER arithmetic is exact decimal,
   where the generator's double precision broke two-argument ROUND.
-- Concatenation carries Oracle's NULL semantics: every || chain
-  becomes NULLIF(concat(...), ''), in PL/SQL bodies and trigger
-  functions through the mechanical rewriter and in views, check
-  conditions, defaults, and trigger WHEN clauses through the
-  expression folding. Oracle treats NULL as the empty string where
-  PostgreSQL || yields NULL; concat() ignores NULLs, and NULLIF
-  restores the one case Oracle does return NULL - every part empty.
-  Inner rewrites (SYSDATE, NVL, bind folding) compose inside the
-  operands, and Oracle's CONCAT() function folds the same way.
-- Triggers convert: a simple DML trigger becomes a trigger function
-  plus the CREATE TRIGGER statement PostgreSQL wants. :NEW and :OLD
-  lose their colons, INSERTING/UPDATING/DELETING become TG_OP tests,
-  bare RETURN gains the row result, UPDATE OF column lists survive
-  from the parse tree, WHEN clauses translate through the same
-  folding as views, and disabled triggers stay disabled via ALTER
-  TABLE. Compound triggers, INSTEAD OF, system triggers, and
-  UPDATING('column') refuse by name; sequence-fed triggers convert
-  and carry a note pointing at generated identity columns.
 
 ## 0.2.1 - 2026-08-19
 
