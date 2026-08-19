@@ -301,7 +301,7 @@ def convert(
         f" children, {result.constraints} constraints, {result.indexes} indexes,"
         f" {result.views} views, {result.sequences} sequences,"
         f" {result.synonyms} synonyms, {result.db_links} db links,"
-        f" {result.routines} routines)"
+        f" {result.routines} routines, {result.triggers} triggers)"
     )
     typer.echo(f"Wrote {residue} ({len(result.residue)} residue items)")
 

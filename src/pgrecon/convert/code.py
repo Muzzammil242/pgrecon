@@ -323,18 +323,6 @@ def _emit_code(
             )
         )
     for r in conn.execute(
-        "SELECT owner, trigger_name FROM triggers ORDER BY owner, trigger_name"
-    ):
-        residue.append(
-            Residue(
-                r["owner"],
-                r["trigger_name"],
-                "trigger",
-                "a trigger becomes a trigger function plus a CREATE"
-                " TRIGGER statement; port it by hand",
-            )
-        )
-    for r in conn.execute(
         "SELECT owner, name FROM objects WHERE type = 'TYPE' ORDER BY owner, name"
     ):
         residue.append(

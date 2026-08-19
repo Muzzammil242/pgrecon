@@ -2,6 +2,18 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## Unreleased
+
+- Triggers convert: a simple DML trigger becomes a trigger function
+  plus the CREATE TRIGGER statement PostgreSQL wants. :NEW and :OLD
+  lose their colons, INSERTING/UPDATING/DELETING become TG_OP tests,
+  bare RETURN gains the row result, UPDATE OF column lists survive
+  from the parse tree, WHEN clauses translate through the same
+  folding as views, and disabled triggers stay disabled via ALTER
+  TABLE. Compound triggers, INSTEAD OF, system triggers, and
+  UPDATING('column') refuse by name; sequence-fed triggers convert
+  and carry a note pointing at generated identity columns.
+
 ## 0.2.1 - 2026-08-19
 
 - Bare procedure-call statements become CALL statements with the

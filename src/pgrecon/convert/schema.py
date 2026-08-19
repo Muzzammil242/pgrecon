@@ -22,6 +22,7 @@ from pgrecon.convert.identifiers import ident as ident
 from pgrecon.convert.indexes import _emit_indexes
 from pgrecon.convert.residue import Residue as Residue
 from pgrecon.convert.tables import emit_tables
+from pgrecon.convert.triggers import _emit_triggers
 from pgrecon.convert.views import _emit_views
 
 
@@ -38,6 +39,7 @@ class Conversion:
     synonyms: int
     db_links: int
     routines: int
+    triggers: int
 
 
 def convert_schema(db: Path) -> Conversion:
@@ -83,6 +85,32 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
     routine_count = _emit_code(
         conn, out, residue, emitted, created_views, sequence_names, synonym_names
     )
+    trigger_count = _emit_triggers(
+        conn,
+        out,
+        residue,
+        emitted,
+        sequence_names,
+        {t for (_, t) in emitted} | created_views | synonym_names,
+        frozenset(
+            (r["name"] or "").upper()
+            for r in conn.execute("SELECT name FROM objects WHERE type = 'PROCEDURE'")
+        ),
+        {
+            (r["owner"] or "").upper()
+            for r in conn.execute("SELECT DISTINCT owner FROM objects")
+        },
+        {
+            (r["name"] or "").upper()
+            for r in conn.execute(
+                "SELECT name FROM objects WHERE type IN ('FUNCTION', 'PROCEDURE')"
+            )
+        },
+        {
+            (r["name"] or "").upper()
+            for r in conn.execute("SELECT name FROM objects WHERE type = 'PACKAGE'")
+        },
+    )
     link_count = _emit_db_links(conn, out, residue)
 
     return Conversion(
@@ -97,6 +125,7 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
         synonym_count,
         link_count,
         routine_count,
+        trigger_count,
     )
 
 
