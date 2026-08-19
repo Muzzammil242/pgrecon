@@ -259,6 +259,7 @@ def test_expression_guards_sysop_and_systimestamp() -> None:
     assert _fold_expression("SYSTIMESTAMP") == "CURRENT_TIMESTAMP"
     folded = _fold_expression("ROUND(net_amount * (1 + vat_rate/100), 2)")
     assert folded == "ROUND(net_amount * (1 + CAST(vat_rate AS DECIMAL) / 100), 2)"
+    assert _fold_expression("GROUPING_ID(a, b)") == "GROUPING(a, b)"
 
 
 def test_condition_concatenation_null_safe() -> None:

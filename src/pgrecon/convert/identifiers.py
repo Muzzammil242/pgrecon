@@ -144,6 +144,11 @@ def _fold_identifiers(tree: Expr) -> Expr:
     stamps = [node for node in tree.walk() if _func_name(node) == "SYSTIMESTAMP"]
     for node in stamps:
         node.replace(exp.CurrentTimestamp())
+    # Oracle GROUPING_ID(a, b) and PostgreSQL GROUPING(a, b) return
+    # the same bit vector; only the name differs.
+    grouping = [n for n in tree.walk() if isinstance(n, exp.GroupingId)]
+    for node in grouping:
+        node.replace(exp.Anonymous(this="GROUPING", expressions=node.expressions))
     # The postgres generator casts every division's numerator to
     # double precision to avoid integer division; Oracle NUMBER
     # arithmetic is exact decimal, and PostgreSQL's two-argument
