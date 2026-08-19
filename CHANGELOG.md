@@ -2,8 +2,11 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## Unreleased
+## 0.2.1 - 2026-08-19
 
+- Bare procedure-call statements become CALL statements with the
+  parentheses CALL requires, resolved against the extracted
+  procedures.
 - Two more provable code rewrites: EXIT WHEN cursor%NOTFOUND directly
   after a FETCH of the same cursor becomes EXIT WHEN NOT FOUND, which
   is what plpgsql's FOUND reports at that point; and :name bind
