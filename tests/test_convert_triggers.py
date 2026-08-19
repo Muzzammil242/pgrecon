@@ -60,6 +60,14 @@ BEGIN
   :NEW.tag := 'd';
 END;"""
 
+TRG_WHENDEL = """TRIGGER trg_whendel
+AFTER INSERT OR UPDATE OR DELETE ON t_fees
+FOR EACH ROW
+WHEN (new.fee > 0)
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('fee touched');
+END;"""
+
 _TRIGGERS = [
     ("TRG_STAMP", "BEFORE EACH ROW", "INSERT OR UPDATE", "ENABLED", TRG_STAMP),
     ("TRG_SEQ", "BEFORE EACH ROW", "INSERT", "ENABLED", TRG_SEQ),
@@ -67,6 +75,13 @@ _TRIGGERS = [
     ("TRG_UPDOF", "BEFORE EACH ROW", "UPDATE", "ENABLED", TRG_UPDOF),
     ("TRG_BAD", "BEFORE EACH ROW", "UPDATE", "ENABLED", TRG_BAD),
     ("TRG_DIS", "BEFORE EACH ROW", "INSERT", "DISABLED", TRG_DIS),
+    (
+        "TRG_WHENDEL",
+        "AFTER EACH ROW",
+        "INSERT OR UPDATE OR DELETE",
+        "ENABLED",
+        TRG_WHENDEL,
+    ),
 ]
 
 
@@ -181,7 +196,16 @@ def test_disabled_trigger_stays_disabled(trigger_db: Path) -> None:
     assert "ALTER TABLE t_fees DISABLE TRIGGER trg_dis;" in result.sql
 
 
+def test_new_reference_with_delete_moves_when_into_body(trigger_db: Path) -> None:
+    result = convert_schema(trigger_db)
+    section = result.sql.split("trg_whendel_fn", 2)[1]
+    assert "IF (new.fee > 0) IS NOT TRUE THEN" in section
+    assert "CREATE TRIGGER trg_whendel AFTER insert OR update OR delete" in result.sql
+    header = result.sql.split("CREATE TRIGGER trg_whendel", 1)[1].split(";", 1)[0]
+    assert "WHEN" not in header
+
+
 def test_trigger_count(trigger_db: Path) -> None:
     result = convert_schema(trigger_db)
-    assert result.triggers == 5
-    assert result.sql.count("RETURNS trigger") == 5
+    assert result.triggers == 6
+    assert result.sql.count("RETURNS trigger") == 6

@@ -272,6 +272,7 @@ def _emit_triggers(
         row_level = _tree_of(simple, "For_each_row") is not None
 
         when_sql = ""
+        body_guard: str | None = None
         when = _tree_of(parse.tree, "Trigger_when_clause")
         if when is not None:
             condition = _tree_of(when, "Condition")
@@ -290,7 +291,18 @@ def _emit_triggers(
                     )
                 )
                 continue
-            when_sql = f" WHEN ({folded})"
+            # PostgreSQL refuses at CREATE a WHEN that reads NEW on a
+            # DELETE trigger or OLD on an INSERT trigger; Oracle just
+            # null-evaluates it per row. The condition moves into the
+            # body as an IS NOT TRUE guard - same rows fire either way.
+            lowered = folded.lower()
+            conflicted = ("new." in lowered and "delete" in events) or (
+                "old." in lowered and "insert" in events
+            )
+            if conflicted:
+                body_guard = folded
+            else:
+                when_sql = f" WHEN ({folded})"
 
         fn_name = f"{name.lower()}_fn"
         fn_sql, fn_reasons, fn_notes = _trigger_function(
@@ -306,6 +318,14 @@ def _emit_triggers(
         if fn_sql is None:
             residue.append(Residue(owner, name, "trigger", "; ".join(fn_reasons[:3])))
             continue
+        if body_guard is not None:
+            fallthrough = "COALESCE(NEW, OLD)" if row_level else "NULL"
+            fn_sql = fn_sql.replace(
+                "BEGIN",
+                f"BEGIN\n  IF ({body_guard}) IS NOT TRUE THEN\n"
+                f"    RETURN {fallthrough};\n  END IF;",
+                1,
+            )
         out.append(fn_sql)
         out.append("")
         level = "FOR EACH ROW" if row_level else "FOR EACH STATEMENT"
