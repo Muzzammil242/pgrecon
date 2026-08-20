@@ -2,6 +2,16 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## Unreleased
+
+- CONNECT BY views convert to WITH RECURSIVE: one table, one PRIOR
+  equality, projections of plain columns, LEVEL, and
+  SYS_CONNECT_BY_PATH with a literal separator. START WITH filters
+  the base branch, a WHERE applies after the hierarchy as Oracle
+  evaluates it, and a hidden key column carries the parent join so
+  the projection list does not have to. NOCYCLE, ORDER SIBLINGS BY,
+  joins, and PRIOR expressions refuse by name.
+
 ## 0.3.0 - 2026-08-20
 
 - Triggers convert: a simple DML trigger becomes a trigger function

@@ -305,12 +305,52 @@ def test_plain_view_transpiles_with_folded_identifiers(facts_db: Path) -> None:
     assert "FROM emp" in sql
 
 
-def test_connect_by_view_becomes_residue(facts_db: Path) -> None:
+def test_connect_by_view_becomes_with_recursive(facts_db: Path) -> None:
+    # No START WITH: Oracle roots the hierarchy at every row, so the
+    # base branch carries no filter.
     result = convert_schema(facts_db)
-    tree = [r for r in result.residue if r.object_name == "V_TREE"]
-    assert len(tree) == 1
-    assert tree[0].kind == "view"
-    assert "rewrite" in tree[0].reason
+    sql = result.sql
+    assert "CREATE VIEW v_tree AS" in sql
+    assert "WITH RECURSIVE hierarchy (emp_id, pgr_key) AS (" in sql
+    assert "SELECT emp_id, emp_id\n  FROM emp\n  UNION ALL" in sql
+    assert "JOIN hierarchy AS h ON c.dept_id = h.pgr_key" in sql
+    assert not [r for r in result.residue if r.object_name == "V_TREE"]
+
+
+def test_connect_by_full_shape_and_refusals(facts_db: Path) -> None:
+    import sqlite3
+
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality) VALUES
+          ('HR', 'V_CHART', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_CHART" ("EMP_ID", "DEPTH", "CHAIN")'
+           || ' AS SELECT emp_id, LEVEL AS depth,'
+           || ' SYS_CONNECT_BY_PATH(ename, ''/'') AS chain FROM emp'
+           || ' START WITH dept_id IS NULL CONNECT BY PRIOR emp_id = dept_id',
+           1, 'full'),
+          ('HR', 'V_NOCYC', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_NOCYC" AS SELECT emp_id FROM emp'
+           || ' CONNECT BY NOCYCLE PRIOR emp_id = dept_id', 1, 'full'),
+          ('HR', 'V_SIBS', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_SIBS" AS SELECT emp_id FROM emp'
+           || ' CONNECT BY PRIOR emp_id = dept_id ORDER SIBLINGS BY emp_id',
+           1, 'full');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    sql = result.sql
+    assert "CREATE VIEW v_chart AS" in sql
+    assert "WITH RECURSIVE hierarchy (emp_id, depth, chain, pgr_key) AS (" in sql
+    assert "SELECT emp_id, 1, concat('/', ename), emp_id" in sql
+    assert "WHERE dept_id IS NULL" in sql
+    assert "h.depth + 1, concat(h.chain, '/', c.ename), c.emp_id" in sql
+    reasons = {r.object_name: r.reason for r in result.residue if r.kind == "view"}
+    assert "CYCLE clause" in reasons["V_NOCYC"]
+    assert "ORDER SIBLINGS BY" in reasons["V_SIBS"]
 
 
 def test_plus_join_view_becomes_ansi_join(facts_db: Path) -> None:
@@ -318,7 +358,7 @@ def test_plus_join_view_becomes_ansi_join(facts_db: Path) -> None:
     assert "v_oldjoin" in result.sql
     assert "(+)" not in result.sql
     assert "LEFT" in result.sql
-    assert result.views == 2
+    assert result.views == 3
 
 
 @pytest.fixture()
