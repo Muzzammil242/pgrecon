@@ -157,6 +157,16 @@ def _fold_identifiers(tree: Expr) -> Expr:
     for node in tree.walk():
         if isinstance(node, exp.Div) and not isinstance(node.this, exp.Cast):
             node.set("this", exp.Cast(this=node.this, to=exp.DataType.build("DECIMAL")))
+    # Oracle folds '' to NULL, so a DECODE argument written as '' is a
+    # NULL search, result, or default; compared as a real empty string
+    # it would never match. The rest of the translation is sqlglot's
+    # CASE, which renders NULL searches as IS NULL and column searches
+    # with a both-NULL match - DECODE's null-equals-null rule.
+    for node in tree.walk():
+        if isinstance(node, exp.DecodeCase):
+            for item in list(node.expressions):
+                if isinstance(item, exp.Literal) and item.is_string and not item.this:
+                    item.replace(exp.Null())
     return tree
 
 

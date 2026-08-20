@@ -353,6 +353,63 @@ def test_connect_by_full_shape_and_refusals(facts_db: Path) -> None:
     assert "ORDER SIBLINGS BY" in reasons["V_SIBS"]
 
 
+def test_decode_views_keep_oracle_null_semantics(facts_db: Path) -> None:
+    import sqlite3
+
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality) VALUES
+          ('HR', 'V_DEC', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_DEC" AS SELECT'
+           || ' DECODE(ename, ''a'', 1, ''b'', 2, 0) AS lit_code,'
+           || ' DECODE(ename, '''', ''missing'', ename) AS empty_search,'
+           || ' DECODE(dept_id, emp_id, ''self'', ''other'') AS col_search,'
+           || ' DECODE(ename, ''gone'', '''', ename) AS empty_result'
+           || ' FROM emp', 1, 'full');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    sql = result.sql
+    # Literal searches keep plain equality: a NULL operand matches no
+    # branch and falls to the default, in Oracle and PostgreSQL alike.
+    assert "CASE WHEN ename = 'a' THEN 1 WHEN ename = 'b' THEN 2 ELSE 0 END" in sql
+    # Oracle folds '' to NULL, as a search and as a result.
+    assert "CASE WHEN ename IS NULL THEN 'missing' ELSE ename END" in sql
+    assert "CASE WHEN ename = 'gone' THEN NULL ELSE ename END" in sql
+    # A column search can be NULL at runtime, and DECODE matches two
+    # NULLs; plain equality would fall through to the default.
+    assert "WHEN dept_id = emp_id OR (" in sql
+    assert "dept_id IS NULL AND emp_id IS NULL" in sql
+    assert "= ''" not in sql
+    assert not [r for r in result.residue if r.object_name == "V_DEC"]
+
+
+def test_json_table_view_refuses_by_name(facts_db: Path) -> None:
+    import sqlite3
+
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality) VALUES
+          ('HR', 'V_JSON', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_JSON" AS SELECT jt.item'
+           || ' FROM emp, JSON_TABLE(ename, ''$.items[*]'''
+           || ' COLUMNS (item VARCHAR2(100) PATH ''$.name'')) jt',
+           1, 'full');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    reasons = {r.object_name: r.reason for r in result.residue if r.kind == "view"}
+    assert "JSON_TABLE" in reasons["V_JSON"]
+    assert "version 17" in reasons["V_JSON"]
+    assert "V_JSON" not in result.sql
+
+
 def test_plus_join_view_becomes_ansi_join(facts_db: Path) -> None:
     result = convert_schema(facts_db)
     assert "v_oldjoin" in result.sql

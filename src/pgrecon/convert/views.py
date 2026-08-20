@@ -20,6 +20,8 @@ _PARTITION_SCOPED = re.compile(r"\bPARTITION\s*\(", re.IGNORECASE)
 
 _OBJECT_VIEW = re.compile(r"\bVIEW\s+\"?[^\s(]+\s+OF\s", re.IGNORECASE)
 
+_JSON_TABLE = re.compile(r"\bJSON_TABLE\s*\(", re.IGNORECASE)
+
 
 def _view_guard(
     tree: Expr,
@@ -262,6 +264,18 @@ def _emit_views(
                     "view",
                     "uses a partition-scoped query; PostgreSQL reads the"
                     " child table directly - rewrite by hand",
+                )
+            )
+            continue
+        if _JSON_TABLE.search(text):
+            residue.append(
+                Residue(
+                    r["owner"],
+                    name,
+                    "view",
+                    "uses JSON_TABLE, which PostgreSQL adds in version 17"
+                    " with different clause syntax; rewrite the view by"
+                    " hand",
                 )
             )
             continue

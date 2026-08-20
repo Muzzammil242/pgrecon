@@ -4,6 +4,14 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
 ## Unreleased
 
+- DECODE translates with Oracle's null rules intact: an empty-string
+  argument is a NULL search, result, or default, so it becomes IS
+  NULL or a NULL literal instead of a comparison against '' that
+  could never match. Literal searches keep plain equality; a column
+  search carries the both-NULL match DECODE gives it.
+- Views over JSON_TABLE refuse by name instead of surfacing a parser
+  error: PostgreSQL adds JSON_TABLE in version 17 with different
+  clause syntax, and the residue line now says so.
 - CONNECT BY views convert to WITH RECURSIVE: one table, one PRIOR
   equality, projections of plain columns, LEVEL, and
   SYS_CONNECT_BY_PATH with a literal separator. START WITH filters
