@@ -2,13 +2,16 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## Unreleased
+## 0.4.0 - 2026-08-21
 
-- Materialized views stop converting silently: DBMS_METADATA hands
-  them over as container tables, so the table still converts and a
-  residue line now names the loss - the defining query is not in the
-  inventory, refresh must be scheduled by hand, and query rewrite has
-  no PostgreSQL counterpart.
+- CONNECT BY views convert to WITH RECURSIVE: one table, one PRIOR
+  equality, projections of plain columns, LEVEL, and
+  SYS_CONNECT_BY_PATH with a literal separator. START WITH filters
+  the base branch, a WHERE applies after the hierarchy as Oracle
+  evaluates it, and a hidden key column carries the parent join so
+  the projection list does not have to. NOCYCLE, ORDER SIBLINGS BY,
+  joins, and PRIOR expressions refuse by name. Verified row-for-row
+  against a live Oracle database running the original view.
 - DECODE translates with Oracle's null rules intact: an empty-string
   argument is a NULL search, result, or default, so it becomes IS
   NULL or a NULL literal instead of a comparison against '' that
@@ -17,13 +20,11 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 - Views over JSON_TABLE refuse by name instead of surfacing a parser
   error: PostgreSQL adds JSON_TABLE in version 17 with different
   clause syntax, and the residue line now says so.
-- CONNECT BY views convert to WITH RECURSIVE: one table, one PRIOR
-  equality, projections of plain columns, LEVEL, and
-  SYS_CONNECT_BY_PATH with a literal separator. START WITH filters
-  the base branch, a WHERE applies after the hierarchy as Oracle
-  evaluates it, and a hidden key column carries the parent join so
-  the projection list does not have to. NOCYCLE, ORDER SIBLINGS BY,
-  joins, and PRIOR expressions refuse by name.
+- Materialized views stop converting silently: DBMS_METADATA hands
+  them over as container tables, so the table still converts and a
+  residue line now names the loss - the defining query is not in the
+  inventory, refresh must be scheduled by hand, and query rewrite has
+  no PostgreSQL counterpart.
 
 ## 0.3.0 - 2026-08-20
 
