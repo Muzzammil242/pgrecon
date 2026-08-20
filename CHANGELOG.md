@@ -4,6 +4,11 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
 ## Unreleased
 
+- Materialized views stop converting silently: DBMS_METADATA hands
+  them over as container tables, so the table still converts and a
+  residue line now names the loss - the defining query is not in the
+  inventory, refresh must be scheduled by hand, and query rewrite has
+  no PostgreSQL counterpart.
 - DECODE translates with Oracle's null rules intact: an empty-string
   argument is a NULL search, result, or default, so it becomes IS
   NULL or a NULL literal instead of a comparison against '' that

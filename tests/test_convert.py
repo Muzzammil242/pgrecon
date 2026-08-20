@@ -410,6 +410,33 @@ def test_json_table_view_refuses_by_name(facts_db: Path) -> None:
     assert "V_JSON" not in result.sql
 
 
+def test_materialized_view_container_notes_the_loss(facts_db: Path) -> None:
+    import sqlite3
+
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary) VALUES
+          ('HR', 'MV_DEPT_SUM', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'MV_DEPT_SUM', 'DNAME', 1, 'VARCHAR2', 14, NULL, NULL, 'N'),
+          ('HR', 'MV_DEPT_SUM', 'TOTAL', 2, 'NUMBER', 22, NULL, NULL, 'Y');
+        INSERT INTO mviews (owner, mview_name, rewrite_enabled, refresh_method)
+          VALUES ('HR', 'MV_DEPT_SUM', 'Y', 'COMPLETE');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    assert "CREATE TABLE mv_dept_sum (" in result.sql
+    mv = [r for r in result.residue if r.kind == "materialized view"]
+    assert len(mv) == 1 and mv[0].object_name == "MV_DEPT_SUM"
+    assert "refresh method: COMPLETE" in mv[0].reason
+    assert "query rewrite does not exist" in mv[0].reason
+
+
 def test_plus_join_view_becomes_ansi_join(facts_db: Path) -> None:
     result = convert_schema(facts_db)
     assert "v_oldjoin" in result.sql

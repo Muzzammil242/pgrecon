@@ -61,6 +61,16 @@ def emit_tables(
         if ((fk["rtab"] or "").upper(), (fk["rcol"] or "").upper()) in identity_cols
     }
 
+    # DBMS_METADATA hands a materialized view over as its container
+    # table, so the defining query never reaches the inventory; the
+    # table converts, and the residue names what was lost.
+    mviews = {
+        ((r["owner"] or "").upper(), (r["mview_name"] or "").upper()): r
+        for r in conn.execute(
+            "SELECT owner, mview_name, rewrite_enabled, refresh_method FROM mviews"
+        )
+    }
+
     tables = conn.execute(
         "SELECT owner, table_name, temporary FROM tables ORDER BY owner, table_name"
     ).fetchall()
@@ -203,6 +213,21 @@ def emit_tables(
                     " per-session semantics need pgtt or a redesign",
                 )
             )
+        mv = mviews.get(((owner or "").upper(), (table or "").upper()))
+        if mv is not None:
+            refresh = (mv["refresh_method"] or "unknown").upper()
+            reason = (
+                "materialized view emitted as a plain table; the defining"
+                " query is not in the inventory - recreate it as CREATE"
+                " MATERIALIZED VIEW and schedule REFRESH by hand"
+                f" (Oracle refresh method: {refresh})"
+            )
+            if (mv["rewrite_enabled"] or "N") == "Y":
+                reason += (
+                    "; query rewrite does not exist in PostgreSQL - point"
+                    " queries at the materialized view directly"
+                )
+            residue.append(Residue(owner, table, "materialized view", reason))
         out.append(f"CREATE TABLE {ident(table)} (")
         out.append(",\n".join(lines))
         out.append(f"){meta.clause if meta else ''};")
