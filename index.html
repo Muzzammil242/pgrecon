@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pgrecon &mdash; Oracle to PostgreSQL migration reconnaissance</title>
+<meta name="description" content="Assess and convert an Oracle-to-PostgreSQL migration from an offline dump. Open-source engine: 63+ compatibility rules, effort estimates, and schema conversion that names everything it cannot prove.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23336791'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='15' font-weight='bold' fill='white' text-anchor='middle'%3Epg%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-soft: #161b22;
+    --bg-card: #161b22;
+    --border: #2d333b;
+    --ink: #e6edf3;
+    --ink-soft: #b6c2cf;
+    --ink-mute: #8b949e;
+    --brand: #4e9bcd;
+    --brand-bright: #6cb6e4;
+    --good: #3fb950;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink-soft);
+    font-family: Inter, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16.5px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+  header { padding: 88px 0 56px; }
+  .kicker {
+    font-family: var(--mono); font-size: 13px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--brand-bright);
+  }
+  h1 { color: var(--ink); font-size: 52px; font-weight: 800; letter-spacing: -0.02em; margin: 10px 0 14px; }
+  .lede { font-size: 21px; color: var(--ink-soft); max-width: 640px; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+  .install {
+    display: inline-block; margin: 28px 0 6px;
+    font-family: var(--mono); font-size: 16px;
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: 10px; padding: 13px 22px; color: var(--ink);
+  }
+  .install .p { color: var(--ink-mute); user-select: none; }
+  .btns { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn {
+    display: inline-block; text-decoration: none; font-weight: 600; font-size: 15px;
+    padding: 10px 20px; border-radius: 9px; border: 1px solid var(--border);
+    color: var(--ink); background: var(--bg-soft);
+  }
+  .btn:hover { border-color: var(--brand); color: var(--brand-bright); }
+  .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .btn.primary:hover { background: var(--brand-bright); color: #fff; }
+  section { padding: 44px 0; border-top: 1px solid var(--border); }
+  h2 { color: var(--ink); font-size: 28px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 8px; }
+  .sub { color: var(--ink-mute); margin-bottom: 28px; max-width: 640px; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .step {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 22px;
+  }
+  .step .n { font-family: var(--mono); color: var(--brand-bright); font-size: 13px; font-weight: 600; }
+  .step h3 { color: var(--ink); font-size: 17px; margin: 8px 0 8px; }
+  .step p { font-size: 14.5px; color: var(--ink-mute); }
+  .tablebox { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 15px; }
+  th, td { text-align: left; padding: 13px 18px; border-bottom: 1px solid var(--border); }
+  th { color: var(--ink-mute); font-size: 12.5px; text-transform: uppercase; letter-spacing: .08em; background: var(--bg-soft); }
+  td { color: var(--ink-soft); }
+  tr:last-child td { border-bottom: none; }
+  .zero { color: var(--good); font-weight: 700; font-family: var(--mono); }
+  .num { font-family: var(--mono); }
+  .us td { background: rgba(63, 185, 80, 0.05); }
+  .us td:first-child { color: var(--ink); font-weight: 600; }
+  .note { font-size: 14px; color: var(--ink-mute); margin-top: 16px; max-width: 720px; }
+  .residue {
+    font-family: var(--mono); font-size: 13.5px; line-height: 1.8;
+    background: var(--bg-soft); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px 24px; overflow-x: auto; white-space: pre; color: var(--ink-mute);
+  }
+  .residue .k { color: var(--brand-bright); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 26px;
+  }
+  .card h3 { color: var(--ink); font-size: 19px; margin-bottom: 4px; }
+  .card .tag { font-family: var(--mono); font-size: 12.5px; color: var(--brand-bright); }
+  .card ul { list-style: none; margin-top: 14px; }
+  .card li { font-size: 14.5px; padding: 4px 0 4px 22px; position: relative; color: var(--ink-soft); }
+  .card li::before { content: "+"; position: absolute; left: 2px; color: var(--good); font-weight: 700; }
+  .card .cta { margin-top: 18px; display: inline-block; }
+  footer { border-top: 1px solid var(--border); padding: 36px 0 56px; font-size: 14px; color: var(--ink-mute); }
+  footer a { color: var(--ink-soft); }
+  a { color: var(--brand-bright); }
+  @media (max-width: 720px) {
+    h1 { font-size: 38px; }
+    .lede { font-size: 18px; }
+    .steps, .two { grid-template-columns: 1fr; }
+    header { padding: 56px 0 40px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="kicker">Oracle &rarr; PostgreSQL</div>
+    <h1>pgrecon</h1>
+    <p class="lede">Migration reconnaissance for PostgreSQL. Assess an Oracle estate and convert its schema <strong>from an offline dump</strong> &mdash; no connection to your database ever required.</p>
+    <div class="install"><span class="p">$</span> pip install pgrecon</div>
+    <div class="btns">
+      <a class="btn primary" href="https://github.com/Muzzammil242/pgrecon">GitHub</a>
+      <a class="btn" href="https://pypi.org/project/pgrecon/">PyPI</a>
+      <a class="btn" href="https://github.com/Muzzammil242/pgrecon/releases">Release notes</a>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="sub">Built for the way real migrations start: the database is production, access is guarded, and the first question is not <em>how</em> but <em>how much</em>.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="n">01 &mdash; EXTRACT</div>
+        <h3>One script, client-side</h3>
+        <p>Your DBA runs a single read-only SQL*Plus script and hands back a folder of spool files. Nothing else leaves the building; pgrecon never connects to Oracle.</p>
+      </div>
+      <div class="step">
+        <div class="n">02 &mdash; ASSESS</div>
+        <h3>Parser-grade findings</h3>
+        <p>The dump becomes a local SQLite inventory. An ANTLR PL/SQL grammar and 63+ compatibility rules turn it into findings with remedies, plus a defensible effort estimate in person-days.</p>
+      </div>
+      <div class="step">
+        <div class="n">03 &mdash; CONVERT</div>
+        <h3>Prove it or name it</h3>
+        <p>Schema structure converts to PostgreSQL DDL offline: tables, keys, indexes, views, triggers, routines. Everything unproven becomes a named line in a residue report.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Never a silent guess</h2>
+    <p class="sub">The design law: never emit DDL PostgreSQL would reject, and never drop an object without saying so. What the converter declines, it names &mdash; one object, one reason.</p>
+    <div class="residue"><span class="k">view</span>         CO.PRODUCT_REVIEWS: uses JSON_TABLE, which PostgreSQL adds in version 17 with different clause syntax; rewrite the view by hand
+<span class="k">trigger</span>      RECON_TEST.TRG_EMP_AUDIT: runs an autonomous transaction; redesign with dblink or a queue (line 5)
+<span class="k">trigger</span>      RECON_TEST.TRG_EMP_SAL_GUARD: compound triggers combine timing points; restructure as separate triggers by hand
+<span class="k">mat. view</span>    RECON_TEST.MV_DEPT_SALARIES: materialized view emitted as a plain table; the defining query is not in the inventory - recreate it as CREATE MATERIALIZED VIEW and schedule REFRESH by hand (Oracle refresh method: COMPLETE)</div>
+    <p class="note">A migration stalls on surprises, not on work. The residue report is the complete list of surprises, priced and named, before anyone touches production.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>The benchmark</h2>
+    <p class="sub">Nine schemas &mdash; Oracle's official HR, OE, and CO samples, plus utPLSQL, PLJSON, Logger, Alexandria, and two lab schemas &mdash; converted by each tool, then applied statement by statement to a live PostgreSQL 16. Errors are statements PostgreSQL rejected. August 2026.</p>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Converter</th><th>Apply errors</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr class="us"><td>pgrecon 0.4</td><td class="zero">0</td><td>454 of 889 objects emitted; every decline a named residue line</td></tr>
+          <tr><td>Ora2Pg v25</td><td class="num">77</td><td>needed two accommodations to apply at all</td></tr>
+          <tr><td>AWS SCT</td><td class="num">481</td><td>surviving objects depend on the aws_oracle_ext runtime extension</td></tr>
+          <tr><td>CYBERTEC ora_migrator</td><td class="num">40</td><td>plus two whole-schema crashes; PL/SQL out of scope by design</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">The claim, precisely: across these nine schemas the converter emitted zero statements PostgreSQL rejected &mdash; and everything it cannot prove is a named line in the residue report. It does not mean everything converts: 51 percent of all objects converted mechanically, above 90 percent on the business-shaped schemas, and the gap is dominated by object types and packages, which nothing converts mechanically. One hierarchical view was additionally verified row-for-row against a live Oracle database running the original.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Open core, commercial edge</h2>
+    <div class="two">
+      <div class="card">
+        <div class="tag">APACHE-2.0 &mdash; FREE FOREVER</div>
+        <h3>The engine</h3>
+        <ul>
+          <li>Offline extraction script and SQLite inventory</li>
+          <li>63+ compatibility rules with remedies</li>
+          <li>Effort estimate in person-days, assumptions stated</li>
+          <li>Schema conversion with the residue report</li>
+          <li>Text and JSON output for your own tooling</li>
+        </ul>
+        <a class="cta" href="https://github.com/Muzzammil242/pgrecon">Source on GitHub &rarr;</a>
+      </div>
+      <div class="card">
+        <div class="tag">COMMERCIAL</div>
+        <h3>The engagement</h3>
+        <ul>
+          <li>Fixed-price assessment: a board-ready report with grade, hotspots, and license context</li>
+          <li>Package flattening: PL/SQL packages become PostgreSQL schemas with state, call sites rewritten</li>
+          <li>Migration delivery: schema, code, data, validation, cutover</li>
+        </ul>
+        <a class="cta" href="https://devcrafterai.com/contact/">Book a fixed-price assessment &rarr;</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    pgrecon is Apache-2.0, built in the open by <a href="https://muzzammil242.github.io/">Muzzammil Sarwar</a> &middot; commercial engagements via <a href="https://devcrafterai.com/">DevCrafter AI</a>
+  </div>
+</footer>
+
+</body>
+</html>
