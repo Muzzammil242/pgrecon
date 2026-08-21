@@ -277,6 +277,24 @@ CSV_TABLES: dict[str, tuple[str, dict[str, str]]] = {
             "MVIEW_NAME": "mview_name",
             "REWRITE_ENABLED": "rewrite_enabled",
             "REFRESH_METHOD": "refresh_method",
+            "QUERY": "query",
+        },
+    ),
+    "license.csv": (
+        "license_facts",
+        {
+            "KEY": "key",
+            "VALUE": "value",
+        },
+    ),
+    "feature_usage.csv": (
+        "feature_usage",
+        {
+            "NAME": "name",
+            "VERSION": "version",
+            "DETECTED_USAGES": "detected_usages",
+            "CURRENTLY_USED": "currently_used",
+            "LAST_USAGE": "last_usage",
         },
     ),
     "plan_management.csv": (
@@ -296,6 +314,7 @@ INT_COLUMNS = {
     "count",
     "partition_count",
     "truncated",
+    "detected_usages",
 }
 
 DDL_MARKER = re.compile(r"^-- PGRECON_OBJECT (\S+) ([^\s.]+)\.(\S+)\s*$", re.MULTILINE)

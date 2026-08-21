@@ -27,8 +27,11 @@
 --   3. sqlplus readonly_user@service @pgrecon_extract_legacy.sql SCHEMA_NAME
 --   4. Send the resulting folder of .csv and .sql files back.
 --
--- Review notice: every statement below reads ALL_* dictionary views
--- or DUAL only. Nothing is written to the database.
+-- Review notice: every statement below reads dictionary and
+-- performance views only (ALL_*, and for db links, outlines, and the
+-- license facts, DBA_* and V$ views covered by SELECT_CATALOG_ROLE).
+-- Nothing is written to the database, and no statement reads table
+-- data.
 
 WHENEVER OSERROR CONTINUE
 WHENEVER SQLERROR CONTINUE
@@ -250,13 +253,86 @@ SELECT '"' || owner || '","' || REPLACE(index_name, '"', '""') || '","'
  ORDER BY index_name;
 SPOOL OFF
 
+SET SERVEROUTPUT ON SIZE 1000000
+
+-- HIGH_VALUE is a LONG column, unreadable to concatenation; read it
+-- in PL/SQL and cut at 180 bytes with a truncated flag, like the
+-- check conditions below. The modern script carries the full value.
+SPOOL part_partitions.csv
+DECLARE
+    l_hv VARCHAR2(4000);
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"OWNER","TABLE_NAME","PARTITION_NAME",'
+        || '"POSITION","HIGH_VALUE","TRUNCATED"');
+    FOR p IN (SELECT table_owner, table_name, partition_name,
+                     partition_position, high_value
+                FROM all_tab_partitions
+               WHERE table_owner = UPPER('&schema')
+               ORDER BY table_name, partition_position) LOOP
+        l_hv := SUBSTRB(p.high_value, 1, 180);
+        l_hv := REPLACE(REPLACE(REPLACE(l_hv, '"', '""'),
+                        CHR(13), ' '), CHR(10), ' ');
+        DBMS_OUTPUT.PUT_LINE('"' || p.table_owner || '","' || p.table_name
+            || '","' || p.partition_name || '",' || p.partition_position
+            || ',"' || l_hv || '",'
+            || CASE WHEN LENGTHB(l_hv) >= 180 THEN 1 ELSE 0 END);
+    END LOOP;
+END;
+/
+SPOOL OFF
+
+-- The defining QUERY is also a LONG; stream it inside the quoted CSV
+-- field with the same 240-byte line wrap the view DDL uses. A query
+-- over 32000 characters leaves the field empty rather than partial.
 SPOOL mviews.csv
-SELECT '"OWNER","MVIEW_NAME","REWRITE_ENABLED","REFRESH_METHOD"' FROM dual;
-SELECT '"' || owner || '","' || REPLACE(mview_name, '"', '""') || '","'
-       || rewrite_enabled || '","' || NVL(refresh_method, '') || '"'
-  FROM all_mviews
- WHERE owner = UPPER('&schema')
- ORDER BY mview_name;
+DECLARE
+    l_text VARCHAR2(32767);
+    l_line VARCHAR2(32767);
+    l_pos  PLS_INTEGER;
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"OWNER","MVIEW_NAME","REWRITE_ENABLED",'
+        || '"REFRESH_METHOD","QUERY"');
+    FOR m IN (SELECT owner, mview_name, rewrite_enabled,
+                     refresh_method, query, query_len
+                FROM all_mviews
+               WHERE owner = UPPER('&schema')
+               ORDER BY mview_name) LOOP
+        -- The row's fixed fields end the line with the query field's
+        -- opening quote; the query streams on the following lines and
+        -- the closing quote ends the last one. The leading newline
+        -- inside the quoted field is harmless whitespace to a parser.
+        DBMS_OUTPUT.PUT_LINE('"' || m.owner || '","'
+            || REPLACE(m.mview_name, '"', '""') || '","'
+            || m.rewrite_enabled || '","'
+            || NVL(m.refresh_method, '') || '","');
+        IF NVL(m.query_len, 0) > 32000 OR m.query IS NULL THEN
+            DBMS_OUTPUT.PUT_LINE('"');
+        ELSE
+            l_text := m.query;
+            WHILE l_text IS NOT NULL LOOP
+                l_pos := INSTR(l_text, CHR(10));
+                IF l_pos = 0 THEN
+                    l_line := l_text;
+                    l_text := NULL;
+                ELSE
+                    l_line := SUBSTR(l_text, 1, l_pos - 1);
+                    l_text := SUBSTR(l_text, l_pos + 1);
+                END IF;
+                l_line := REPLACE(REPLACE(l_line, CHR(13), ''), '"', '""');
+                WHILE LENGTHB(l_line) > 240 LOOP
+                    DBMS_OUTPUT.PUT_LINE(SUBSTRB(l_line, 1, 240));
+                    l_line := SUBSTRB(l_line, 241);
+                END LOOP;
+                IF l_text IS NULL THEN
+                    DBMS_OUTPUT.PUT_LINE(NVL(l_line, ' ') || '"');
+                ELSE
+                    DBMS_OUTPUT.PUT_LINE(NVL(l_line, ' '));
+                END IF;
+            END LOOP;
+        END IF;
+    END LOOP;
+END;
+/
 SPOOL OFF
 
 -- No DBA_SQL_PLAN_BASELINES before 11.1; stored outlines are the
@@ -310,6 +386,68 @@ SELECT '"iot_tables","index organized",' || COUNT(*)
 SELECT '"temporary_tables","global temporary",' || COUNT(*)
   FROM all_tables
  WHERE owner = UPPER('&schema') AND temporary = 'Y';
+SPOOL OFF
+
+-- License posture facts. Dynamic SQL with a swallow-and-continue
+-- guard per fact: V$OSSTAT arrives in 10.1, so a 9.2 server spools
+-- the facts it has and an empty line for the rest, never an error.
+SPOOL license.csv
+DECLARE
+    l_value VARCHAR2(4000);
+    PROCEDURE emit(p_key VARCHAR2, p_sql VARCHAR2) IS
+    BEGIN
+        EXECUTE IMMEDIATE p_sql INTO l_value;
+        DBMS_OUTPUT.PUT_LINE('"' || p_key || '","'
+            || REPLACE(l_value, '"', '""') || '"');
+    EXCEPTION
+        WHEN OTHERS THEN NULL;
+    END;
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"KEY","VALUE"');
+    emit('banner',
+         'SELECT banner FROM v$version WHERE ROWNUM = 1');
+    emit('cpu_count',
+         'SELECT value FROM v$parameter WHERE name = ''cpu_count''');
+    emit('num_cpu_cores',
+         'SELECT TO_CHAR(value) FROM v$osstat'
+         || ' WHERE stat_name = ''NUM_CPU_CORES''');
+    emit('num_cpus',
+         'SELECT TO_CHAR(value) FROM v$osstat'
+         || ' WHERE stat_name = ''NUM_CPUS''');
+END;
+/
+SPOOL OFF
+
+-- Feature usage arrives with DBA_FEATURE_USAGE_STATISTICS in 10.1; a
+-- 9.2 server leaves only the header row behind.
+SPOOL feature_usage.csv
+DECLARE
+    TYPE t_cur IS REF CURSOR;
+    l_cur     t_cur;
+    l_name    VARCHAR2(200);
+    l_version VARCHAR2(80);
+    l_det     NUMBER;
+    l_used    VARCHAR2(10);
+    l_last    VARCHAR2(20);
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('"NAME","VERSION","DETECTED_USAGES",'
+        || '"CURRENTLY_USED","LAST_USAGE"');
+    OPEN l_cur FOR
+        'SELECT name, version, detected_usages, currently_used,'
+        || ' TO_CHAR(last_usage_date, ''YYYY-MM-DD'')'
+        || ' FROM dba_feature_usage_statistics ORDER BY name, version';
+    LOOP
+        FETCH l_cur INTO l_name, l_version, l_det, l_used, l_last;
+        EXIT WHEN l_cur%NOTFOUND;
+        DBMS_OUTPUT.PUT_LINE('"' || REPLACE(l_name, '"', '""') || '","'
+            || l_version || '",' || NVL(TO_CHAR(l_det), '') || ',"'
+            || NVL(l_used, '') || '","' || NVL(l_last, '') || '"');
+    END LOOP;
+    CLOSE l_cur;
+EXCEPTION
+    WHEN OTHERS THEN NULL;
+END;
+/
 SPOOL OFF
 
 -- ---------------------------------------------------------------

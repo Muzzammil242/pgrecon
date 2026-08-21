@@ -289,6 +289,7 @@ CREATE TABLE mviews (
     mview_name      TEXT NOT NULL,
     rewrite_enabled TEXT,
     refresh_method  TEXT,
+    query           TEXT,
     PRIMARY KEY (owner, mview_name)
 );
 
@@ -296,4 +297,25 @@ CREATE TABLE plan_management (
     kind    TEXT NOT NULL,
     name    TEXT NOT NULL,
     enabled TEXT
+);
+
+-- Database-wide license posture: edition banner, cpu counts. Facts
+-- only; any interpretation of what they cost belongs to a human with
+-- the client's contract in hand.
+CREATE TABLE license_facts (
+    key   TEXT NOT NULL,
+    value TEXT,
+    PRIMARY KEY (key)
+);
+
+-- DBA_FEATURE_USAGE_STATISTICS, database-wide by nature. Readable
+-- with SELECT_CATALOG_ROLE; accounts without it produce an empty
+-- table, never a failed load.
+CREATE TABLE feature_usage (
+    name            TEXT NOT NULL,
+    version         TEXT,
+    detected_usages INTEGER,
+    currently_used  TEXT,
+    last_usage      TEXT,
+    PRIMARY KEY (name, version)
 );

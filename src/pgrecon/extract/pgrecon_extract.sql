@@ -20,8 +20,10 @@
 --      assessment.
 --
 -- Review notice: this script is intentionally plain so that a DBA can
--- audit every statement before running it. Every query below selects
--- from ALL_* dictionary views or DUAL only.
+-- audit every statement before running it. Every query below reads
+-- dictionary and performance views only (ALL_*, and for plan
+-- management and the license facts, DBA_* and V$ views covered by
+-- SELECT_CATALOG_ROLE). No statement reads table data.
 
 WHENEVER OSERROR CONTINUE
 WHENEVER SQLERROR CONTINUE
@@ -233,6 +235,21 @@ SELECT owner, name, column_name, column_position
  ORDER BY name, column_position;
 SPOOL OFF
 
+-- HIGH_VALUE is a LONG column; SET LONG above lets it spool complete.
+-- The boundary expression of each partition is what a converter needs
+-- to emit exact PostgreSQL partition bounds.
+SPOOL part_partitions.csv
+SELECT table_owner AS owner,
+       table_name,
+       partition_name,
+       partition_position AS position,
+       0 AS truncated,
+       high_value
+  FROM all_tab_partitions
+ WHERE table_owner = UPPER('&schema')
+ ORDER BY table_name, partition_position;
+SPOOL OFF
+
 -- Sequence facts spool as text: Oracle sequence bounds go to 1e28,
 -- far past any integer type on the loading side.
 SPOOL sequences.csv
@@ -290,9 +307,12 @@ SELECT owner, index_name, table_name, locality
 SPOOL OFF
 
 -- Query-rewrite and refresh settings drive how each materialized
--- view's consumers must change.
+-- view's consumers must change. QUERY is a LONG column; SET LONG
+-- above lets the defining query spool complete, which is what turns
+-- the container table back into a real materialized view on the
+-- PostgreSQL side.
 SPOOL mviews.csv
-SELECT owner, mview_name, rewrite_enabled, refresh_method
+SELECT owner, mview_name, rewrite_enabled, refresh_method, query
   FROM all_mviews
  WHERE owner = UPPER('&schema')
  ORDER BY mview_name;
@@ -309,6 +329,38 @@ SELECT 'OUTLINE', name, enabled
   FROM dba_outlines
  WHERE owner = UPPER('&schema')
  ORDER BY 1, 2;
+SPOOL OFF
+
+-- License posture facts, database-wide: the edition banner and cpu
+-- counts. Facts only - no interpretation happens here, and nothing
+-- below reads table data. Requires SELECT_CATALOG_ROLE; without it
+-- these two files come back empty and the assessment proceeds
+-- without a license section.
+SPOOL license.csv
+SELECT 'banner' AS key, banner AS value
+  FROM v$version
+ WHERE ROWNUM = 1
+UNION ALL
+SELECT 'cpu_count', value FROM v$parameter WHERE name = 'cpu_count'
+UNION ALL
+SELECT 'num_cpu_cores', TO_CHAR(value)
+  FROM v$osstat WHERE stat_name = 'NUM_CPU_CORES'
+UNION ALL
+SELECT 'num_cpus', TO_CHAR(value)
+  FROM v$osstat WHERE stat_name = 'NUM_CPUS';
+SPOOL OFF
+
+-- What the database reports it has actually used, feature by feature.
+-- Separately licensed options showing usage here are the raw material
+-- of a license-exposure review.
+SPOOL feature_usage.csv
+SELECT name,
+       version,
+       detected_usages,
+       currently_used,
+       TO_CHAR(last_usage_date, 'YYYY-MM-DD') AS last_usage
+  FROM dba_feature_usage_statistics
+ ORDER BY name, version;
 SPOOL OFF
 
 -- Feature probes: one row per feature with a count. Each of these

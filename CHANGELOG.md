@@ -2,6 +2,20 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## Unreleased
+
+- The extraction scripts capture license posture and the two facts
+  that were LONG-locked. license.csv carries the edition banner and
+  cpu counts; feature_usage.csv carries DBA_FEATURE_USAGE_STATISTICS
+  (both need SELECT_CATALOG_ROLE and degrade to empty files without
+  it). Materialized views now arrive with their defining query, and
+  partitions with their full HIGH_VALUE - complete in the modern
+  script via SET LONG, and in the legacy script through the same
+  PL/SQL streaming the view DDL already used, where HIGH_VALUE keeps
+  the 180-byte cut with its truncated flag. The inventory gains
+  license_facts and feature_usage tables and a query column on
+  mviews.
+
 ## 0.4.0 - 2026-08-21
 
 - CONNECT BY views convert to WITH RECURSIVE: one table, one PRIOR

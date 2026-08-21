@@ -314,3 +314,60 @@ def test_wrapped_unit_is_marked_not_parsed(tmp_path: Path) -> None:
     # The base64 payload must produce no token-grep findings either.
     features = conn.execute("SELECT COUNT(*) FROM plsql_features").fetchone()[0]
     assert features == 0
+
+
+def test_license_mview_and_partition_facts_load(tmp_path: Path) -> None:
+    dump = tmp_path / "dump"
+    dump.mkdir()
+    (dump / "license.csv").write_text(
+        '\n"KEY","VALUE"\n'
+        '"banner","Oracle Database 21c Express Edition Release 21.0.0.0.0"\n'
+        '"cpu_count","8"\n',
+        encoding="utf-8",
+    )
+    (dump / "feature_usage.csv").write_text(
+        '\n"NAME","VERSION","DETECTED_USAGES","CURRENTLY_USED","LAST_USAGE"\n'
+        '"Partitioning (user)","21.0.0.0.0",4,"TRUE","2026-08-01"\n',
+        encoding="utf-8",
+    )
+    # The legacy script opens the QUERY field on its own line, so the
+    # value begins with a newline; the loader must keep it verbatim.
+    (dump / "mviews.csv").write_text(
+        '\n"OWNER","MVIEW_NAME","REWRITE_ENABLED","REFRESH_METHOD","QUERY"\n'
+        '"HR","MV_SUM","Y","COMPLETE","\n'
+        "SELECT dept, SUM(sal) AS total\n"
+        "FROM emp\n"
+        'GROUP BY dept"\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    (dump / "part_partitions.csv").write_text(
+        '\n"OWNER","TABLE_NAME","PARTITION_NAME","POSITION","TRUNCATED",'
+        '"HIGH_VALUE"\n'
+        '"HR","SALES","P2021",1,0,"TO_DATE(\'\' 2021-01-01\'\','
+        " ''YYYY-MM-DD'')\"\n".replace("''", "'"),
+        encoding="utf-8",
+    )
+    db = tmp_path / "inv.db"
+    load_dump(dump, db)
+    conn = sqlite3.connect(db)
+    assert (
+        conn.execute("SELECT value FROM license_facts WHERE key = 'banner'")
+        .fetchone()[0]
+        .startswith("Oracle Database 21c Express")
+    )
+    usage = conn.execute(
+        "SELECT detected_usages, currently_used FROM feature_usage"
+        " WHERE name = 'Partitioning (user)'"
+    ).fetchone()
+    assert usage == (4, "TRUE")
+    query = conn.execute(
+        "SELECT query FROM mviews WHERE mview_name = 'MV_SUM'"
+    ).fetchone()[0]
+    assert query.startswith("\nSELECT dept")
+    assert "GROUP BY dept" in query
+    high = conn.execute(
+        "SELECT high_value, truncated FROM part_partitions"
+        " WHERE partition_name = 'P2021'"
+    ).fetchone()
+    assert high == ("TO_DATE(' 2021-01-01', 'YYYY-MM-DD')", 0)
