@@ -122,9 +122,49 @@ def test_explain_lists_catalog() -> None:
     result = runner.invoke(app, ["explain"])
     assert result.exit_code == 0
     assert "R-TYPE-01" in result.output
-    assert "64 rules" in result.output
+    assert "74 rules" in result.output
 
 
 def test_explain_rejects_unknown_id() -> None:
     result = runner.invoke(app, ["explain", "R-NOPE-99"])
     assert result.exit_code != 0
+
+
+def test_runbook_writes_artifacts(tmp_path: Path) -> None:
+    from pgrecon.inventory import open_db
+
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO meta (key, value) VALUES ('schema', 'HR');
+        INSERT INTO tables (owner, table_name) VALUES
+          ('HR', 'EMP'), ('HR', 'MLOG$_EMP');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type) VALUES
+          ('HR', 'EMP', 'EMP_ID', 1, 'NUMBER'),
+          ('HR', 'EMP', 'ENAME', 2, 'VARCHAR2');
+        INSERT INTO sequences (owner, sequence_name, last_number) VALUES
+          ('HR', 'SEQ_EMP', '400');
+        INSERT INTO mviews (owner, mview_name) VALUES ('HR', 'MV_SUM');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    out = tmp_path / "rb"
+    result = runner.invoke(app, ["runbook", "--db", str(db), "--out-dir", str(out)])
+    assert result.exit_code == 0, result.output
+    conf = (out / "ora2pg_data.conf").read_text()
+    assert "SCHEMA          HR" in conf and "TYPE            COPY" in conf
+    ora = (out / "validate_rowcounts_oracle.sql").read_text()
+    pg = (out / "validate_rowcounts_postgres.sql").read_text()
+    assert 'FROM "EMP"' in ora and "FROM emp" in pg
+    assert "SUM(EMP_ID)" in ora and "SUM(emp_id)" in pg
+    assert "MLOG$_EMP" not in ora
+    post = (out / "post_load_postgres.sql").read_text()
+    assert "setval('seq_emp'" in post
+    assert "REFRESH MATERIALIZED VIEW mv_sum;" in post
+    assert "ANALYZE emp;" in post
+    checklist = (out / "cutover_checklist.md").read_text()
+    assert "residue report" in checklist

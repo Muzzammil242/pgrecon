@@ -125,4 +125,148 @@ RULES = [
             feature_grep(("sysdate",), "UPPER(s.text) LIKE '%SYSDATE%'", "SYSDATE")
         ),
     ),
+    Rule(
+        id="R-SRC-22",
+        title="MODEL clause",
+        category="sql",
+        severity=Severity.HIGH,
+        effort=3.0,
+        remedy=(
+            "The MODEL clause is a spreadsheet engine inside SELECT;"
+            " PostgreSQL has nothing comparable. Rewrite as recursive"
+            " CTEs, window functions, or application logic - each MODEL"
+            " query is a redesign, not a translation."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, type, detail FROM ("
+            + feature_grep(
+                ("model_clause",),
+                "UPPER(s.text) LIKE '%DIMENSION BY%'",
+                "MODEL clause",
+            )
+            + " UNION ALL"
+            " SELECT owner, name, 'VIEW DDL',"
+            " 'MODEL clause in view definition' AS detail FROM ddl"
+            " WHERE type = 'VIEW' AND UPPER(ddl) LIKE '%DIMENSION BY%')"
+        ),
+    ),
+    Rule(
+        id="R-SRC-23",
+        title="PIVOT or UNPIVOT",
+        category="sql",
+        severity=Severity.MEDIUM,
+        effort=1.5,
+        remedy=(
+            "PostgreSQL has no PIVOT clause. Rewrite as conditional"
+            " aggregation with FILTER, or crosstab() from the tablefunc"
+            " extension; UNPIVOT becomes a LATERAL VALUES join. Column"
+            " lists that Oracle derived automatically must be spelled"
+            " out."
+        ),
+        extension="tablefunc",
+        detector=sql_detector(
+            "SELECT owner, name, type, detail FROM ("
+            + feature_grep(
+                ("pivot_clause",),
+                "UPPER(s.text) LIKE '%PIVOT (%' OR UPPER(s.text) LIKE '%PIVOT(%'",
+                "PIVOT",
+            )
+            + " UNION ALL"
+            " SELECT owner, name, 'VIEW DDL',"
+            " 'PIVOT in view definition' AS detail FROM ddl"
+            " WHERE type = 'VIEW' AND (UPPER(ddl) LIKE '%PIVOT (%'"
+            " OR UPPER(ddl) LIKE '%PIVOT(%'))"
+        ),
+    ),
+    Rule(
+        id="R-SRC-24",
+        title="Flashback query",
+        category="sql",
+        severity=Severity.MEDIUM,
+        effort=1.5,
+        remedy=(
+            "AS OF TIMESTAMP and AS OF SCN read the past from undo;"
+            " PostgreSQL keeps no such history. Move the requirement to"
+            " audit tables, temporal tables maintained by triggers, or"
+            " point-in-time recovery clones for investigations."
+        ),
+        detector=sql_detector(
+            feature_grep(
+                ("flashback_query",),
+                "UPPER(s.text) LIKE '%AS OF TIMESTAMP%'"
+                " OR UPPER(s.text) LIKE '%AS OF SCN%'",
+                "flashback query",
+            )
+        ),
+    ),
+    Rule(
+        id="R-SRC-25",
+        title="Multi-table INSERT",
+        category="sql",
+        severity=Severity.MEDIUM,
+        effort=1.0,
+        remedy=(
+            "INSERT ALL and INSERT FIRST fan one row source into"
+            " several tables; PostgreSQL takes one target per INSERT."
+            " Rewrite as a data-modifying CTE (WITH src AS (...)"
+            " INSERT ... SELECT per target) - INSERT FIRST needs its"
+            " conditions made mutually exclusive by hand."
+        ),
+        detector=sql_detector(
+            feature_grep(
+                ("insert_multi",),
+                "UPPER(s.text) LIKE '%INSERT ALL%'"
+                " OR UPPER(s.text) LIKE '%INSERT FIRST%'",
+                "multi-table INSERT",
+            )
+        ),
+    ),
+    Rule(
+        id="R-SRC-26",
+        title="WITH FUNCTION in a query",
+        category="sql",
+        severity=Severity.MEDIUM,
+        effort=1.0,
+        remedy=(
+            "PL/SQL declared inline in a WITH clause has no PostgreSQL"
+            " form. Hoist the function into a schema-level CREATE"
+            " FUNCTION and reference it normally; the inline form often"
+            " exists to dodge a grant, so check who may execute it."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, type, detail FROM ("
+            + feature_grep(
+                ("with_function",),
+                "UPPER(s.text) LIKE '%WITH FUNCTION%'"
+                " OR UPPER(s.text) LIKE '%WITH PROCEDURE%'",
+                "WITH FUNCTION",
+            )
+            + " UNION ALL"
+            " SELECT owner, name, 'VIEW DDL',"
+            " 'WITH FUNCTION in view definition' AS detail FROM ddl"
+            " WHERE type = 'VIEW' AND (UPPER(ddl) LIKE '%WITH FUNCTION%'"
+            " OR UPPER(ddl) LIKE '%WITH PROCEDURE%'))"
+        ),
+    ),
+    Rule(
+        id="R-SRC-27",
+        title="SQL macro",
+        category="sql",
+        severity=Severity.MEDIUM,
+        effort=1.5,
+        remedy=(
+            "SQL_MACRO functions splice text into the calling query at"
+            " parse time; PostgreSQL has no macro expansion. Table"
+            " macros usually become views or set-returning functions,"
+            " scalar macros become plain functions - performance"
+            " characteristics change either way."
+        ),
+        detector=sql_detector(
+            feature_grep(
+                ("sql_macro",),
+                "UPPER(s.text) LIKE '%SQL_MACRO%'",
+                "SQL macro",
+            )
+        ),
+    ),
 ]

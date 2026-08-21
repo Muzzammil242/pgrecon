@@ -73,6 +73,7 @@ def _emit_keys(
     out: list[str],
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
+    matviews: set[str] | None = None,
 ) -> int:
     count = 0
     rows = conn.execute(
@@ -80,6 +81,17 @@ def _emit_keys(
         " WHERE type IN ('P', 'U') ORDER BY type, owner, table_name, constraint_name"
     ).fetchall()
     for r in rows:
+        if matviews and (r["table_name"] or "").upper() in matviews:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["constraint_name"],
+                    "constraint",
+                    "PostgreSQL materialized views cannot carry"
+                    " constraints; enforce it on the base tables",
+                )
+            )
+            continue
         raw = _raw_constraint_columns(conn, r["owner"], r["constraint_name"])
         if not raw:
             residue.append(
@@ -132,6 +144,7 @@ def _emit_checks(
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
     dropped: dict[tuple[str, str], set[str]],
+    matviews: set[str] | None = None,
 ) -> int:
     count = 0
     rows = conn.execute(
@@ -145,6 +158,17 @@ def _emit_checks(
         condition = (r["condition"] or "").strip()
         if not condition or _NOT_NULL_CONDITION.match(condition):
             # Column-level NOT NULL already lives on the column.
+            continue
+        if matviews and (r["table_name"] or "").upper() in matviews:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["constraint_name"],
+                    "check",
+                    "PostgreSQL materialized views cannot carry"
+                    " constraints; enforce it on the base tables",
+                )
+            )
             continue
         if r["truncated"]:
             residue.append(
@@ -213,6 +237,7 @@ def _emit_foreign_keys(
     out: list[str],
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
+    matviews: set[str] | None = None,
 ) -> int:
     count = 0
     rows = conn.execute(
@@ -221,6 +246,17 @@ def _emit_foreign_keys(
         " ORDER BY owner, table_name, constraint_name"
     ).fetchall()
     for r in rows:
+        if matviews and (r["table_name"] or "").upper() in matviews:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["constraint_name"],
+                    "foreign key",
+                    "PostgreSQL materialized views cannot carry"
+                    " constraints; enforce it on the base tables",
+                )
+            )
+            continue
         raw = _raw_constraint_columns(conn, r["owner"], r["constraint_name"])
         ref = conn.execute(
             "SELECT table_name FROM constraints"
@@ -239,6 +275,17 @@ def _emit_foreign_keys(
                     r["constraint_name"],
                     "foreign key",
                     "referenced key is outside the extracted schema",
+                )
+            )
+            continue
+        if matviews and (ref["table_name"] or "").upper() in matviews:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["constraint_name"],
+                    "foreign key",
+                    "references a materialized view, which cannot carry"
+                    " the referenced unique constraint in PostgreSQL",
                 )
             )
             continue

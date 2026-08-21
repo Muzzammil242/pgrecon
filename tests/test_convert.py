@@ -437,6 +437,78 @@ def test_materialized_view_container_notes_the_loss(facts_db: Path) -> None:
     assert "query rewrite does not exist" in mv[0].reason
 
 
+def test_mview_with_query_becomes_materialized_view(facts_db: Path) -> None:
+    import sqlite3
+
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary) VALUES
+          ('HR', 'MV_SAL', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'MV_SAL', 'DEPT_ID', 1, 'NUMBER', 22, 4, 0, 'Y'),
+          ('HR', 'MV_SAL', 'TOTAL', 2, 'NUMBER', 22, NULL, NULL, 'Y');
+        INSERT INTO mviews
+          (owner, mview_name, rewrite_enabled, refresh_method, query) VALUES
+          ('HR', 'MV_SAL', 'Y', 'COMPLETE',
+           'SELECT dept_id, SUM(salary) AS total FROM emp GROUP BY dept_id');
+        INSERT INTO constraints
+          (owner, constraint_name, table_name, type, ref_owner,
+           ref_constraint, delete_rule) VALUES
+          ('HR', 'MV_SAL_PK', 'MV_SAL', 'P', NULL, NULL, NULL);
+        INSERT INTO constraint_columns
+          (owner, constraint_name, column_name, position) VALUES
+          ('HR', 'MV_SAL_PK', 'DEPT_ID', 1);
+        INSERT INTO triggers
+          (owner, trigger_name, trigger_type, triggering_event,
+           table_name, status) VALUES
+          ('HR', 'TRG_MV', 'AFTER EACH ROW', 'INSERT', 'MV_SAL', 'ENABLED');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    sql = result.sql
+    assert "CREATE MATERIALIZED VIEW mv_sal (dept_id, total) AS" in sql
+    assert "CREATE TABLE mv_sal" not in sql
+    assert result.mviews == 1
+    reasons = {r.object_name: r.reason for r in result.residue}
+    assert "cannot carry" in reasons["MV_SAL_PK"]
+    assert "triggers on materialized" in reasons["TRG_MV"]
+    notes = [r.reason for r in result.residue if r.object_name == "MV_SAL"]
+    assert any("REFRESH MATERIALIZED VIEW" in n for n in notes)
+    assert any("query rewrite" in n for n in notes)
+
+
+def test_mview_query_over_unknown_table_refuses(facts_db: Path) -> None:
+    import sqlite3
+
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary) VALUES
+          ('HR', 'MV_GONE', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'MV_GONE', 'X', 1, 'NUMBER', 22, NULL, NULL, 'Y');
+        INSERT INTO mviews
+          (owner, mview_name, rewrite_enabled, refresh_method, query) VALUES
+          ('HR', 'MV_GONE', 'N', 'FORCE',
+           'SELECT x FROM remote_thing');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    assert "MV_GONE" not in result.sql
+    mv = [r for r in result.residue if r.kind == "materialized view"]
+    assert len(mv) == 1
+    assert "REMOTE_THING" in mv[0].reason
+
+
 def test_plus_join_view_becomes_ansi_join(facts_db: Path) -> None:
     result = convert_schema(facts_db)
     assert "v_oldjoin" in result.sql

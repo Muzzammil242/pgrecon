@@ -179,6 +179,40 @@ def _scan_tokens(stream: Any) -> list[Feature]:
             and prev.type == PlSqlLexer.SQL
         ):
             features.append(Feature("sql_cursor_attribute", token.line, token.text))
+        elif token.type in (PlSqlLexer.PIVOT, PlSqlLexer.UNPIVOT):
+            # A column merely named PIVOT is never followed by an
+            # opening parenthesis or the XML keyword.
+            if nxt is not None and nxt.type in (
+                PlSqlLexer.LEFT_PAREN,
+                PlSqlLexer.XML,
+            ):
+                features.append(Feature("pivot_clause", token.line, None))
+        elif token.type == PlSqlLexer.DIMENSION:
+            # DIMENSION BY exists only inside a MODEL clause.
+            if nxt is not None and nxt.type == PlSqlLexer.BY:
+                features.append(Feature("model_clause", token.line, None))
+        elif token.type == PlSqlLexer.AS:
+            if (
+                nxt is not None
+                and nxt.type == PlSqlLexer.OF
+                and i + 2 < len(tokens)
+                and tokens[i + 2].type in (PlSqlLexer.TIMESTAMP, PlSqlLexer.SCN)
+            ):
+                features.append(Feature("flashback_query", token.line, None))
+        elif token.type == PlSqlLexer.INSERT:
+            if nxt is not None and nxt.type in (
+                PlSqlLexer.ALL,
+                PlSqlLexer.FIRST,
+            ):
+                features.append(Feature("insert_multi", token.line, None))
+        elif token.type == PlSqlLexer.WITH:
+            if nxt is not None and nxt.type in (
+                PlSqlLexer.FUNCTION,
+                PlSqlLexer.PROCEDURE,
+            ):
+                features.append(Feature("with_function", token.line, None))
+        elif token.type == PlSqlLexer.SQL_MACRO:
+            features.append(Feature("sql_macro", token.line, None))
     return features
 
 

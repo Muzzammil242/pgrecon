@@ -134,6 +134,7 @@ def _emit_triggers(
     out: list[str],
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
+    matviews: set[str],
     sequences: set[str],
     relations: set[str],
     procedures: frozenset[str],
@@ -143,13 +144,25 @@ def _emit_triggers(
 ) -> int:
     count = 0
     rows = conn.execute(
-        "SELECT owner, trigger_name, trigger_type, status FROM triggers"
+        "SELECT owner, trigger_name, trigger_type, table_name, status FROM triggers"
         " ORDER BY owner, trigger_name"
     ).fetchall()
     tables = {t for (_, t) in emitted}
     for r in rows:
         owner, name = r["owner"], r["trigger_name"]
         kind = (r["trigger_type"] or "").upper()
+        if (r["table_name"] or "").upper() in matviews:
+            residue.append(
+                Residue(
+                    owner,
+                    name,
+                    "trigger",
+                    "PostgreSQL does not allow triggers on materialized"
+                    " views; move the logic to the base tables or the"
+                    " refresh procedure",
+                )
+            )
+            continue
         if "COMPOUND" in kind:
             residue.append(
                 Residue(

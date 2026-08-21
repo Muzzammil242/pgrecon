@@ -299,11 +299,36 @@ def convert(
     typer.echo(
         f"Wrote {out} ({result.tables} tables, {result.partitions} partition"
         f" children, {result.constraints} constraints, {result.indexes} indexes,"
-        f" {result.views} views, {result.sequences} sequences,"
+        f" {result.views} views, {result.mviews} materialized views,"
+        f" {result.sequences} sequences,"
         f" {result.synonyms} synonyms, {result.db_links} db links,"
         f" {result.routines} routines, {result.triggers} triggers)"
     )
     typer.echo(f"Wrote {residue} ({len(result.residue)} residue items)")
+
+
+@app.command()
+def runbook(
+    db: Annotated[
+        Path,
+        typer.Option(exists=True, dir_okay=False, help="Inventory database."),
+    ] = Path("inventory.db"),
+    out_dir: Annotated[
+        Path,
+        typer.Option(help="Directory for the runbook artifacts."),
+    ] = Path("runbook"),
+) -> None:
+    """Generate the data-movement runbook, offline.
+
+    pgrecon does not move rows; it writes the artifacts the move
+    needs: a data-only mover configuration, row-count and spot-sum
+    validation SQL for both engines, the post-load sequence and
+    materialized view steps, and the cutover checklist.
+    """
+    from pgrecon.runbook import write_runbook
+
+    for name in write_runbook(db, out_dir):
+        typer.echo(f"Wrote {out_dir / name}")
 
 
 @app.command()

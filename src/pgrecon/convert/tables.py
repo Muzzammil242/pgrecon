@@ -28,8 +28,13 @@ def emit_tables(
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
     dropped: dict[tuple[str, str], set[str]],
+    skip_mviews: set[str] | None = None,
 ) -> tuple[int, int]:
-    """Emit every table; returns (table_count, partition_count)."""
+    """Emit every table; returns (table_count, partition_count).
+
+    Tables named in skip_mviews are materialized-view containers whose
+    defining query was captured; the mview emitter owns them.
+    """
     table_count = 0
     partition_count = 0
 
@@ -77,6 +82,8 @@ def emit_tables(
 
     for t in tables:
         owner, table = t["owner"], t["table_name"]
+        if skip_mviews and (table or "").upper() in skip_mviews:
+            continue
         cols = _columns(conn, owner, table)
         if not cols:
             residue.append(

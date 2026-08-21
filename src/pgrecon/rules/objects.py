@@ -198,6 +198,25 @@ RULES = [
         ),
     ),
     Rule(
+        id="R-OBJ-10",
+        title="Materialized view log",
+        category="objects",
+        severity=Severity.MEDIUM,
+        effort=1.5,
+        remedy=(
+            "MLOG$ tables are the change capture behind FAST refresh;"
+            " PostgreSQL refreshes materialized views only in full"
+            " (CONCURRENTLY at best). Drop the logs, schedule REFRESH,"
+            " and if true incremental maintenance is required, plan"
+            " trigger-maintained summary tables instead."
+        ),
+        detector=sql_detector(
+            "SELECT owner, table_name, 'TABLE',"
+            " 'materialized view log container' FROM tables"
+            " WHERE table_name LIKE 'MLOG$%' OR table_name LIKE 'RUPD$%'"
+        ),
+    ),
+    Rule(
         id="R-DDL-02",
         title="DDL parsed only as an opaque command",
         category="extraction",

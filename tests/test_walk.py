@@ -325,3 +325,50 @@ def test_type_body_with_default_parameter_parses() -> None:
     )
     analysis = analyze_source(unit, "TYPE BODY")
     assert analysis.errors == ()
+
+
+def test_sql_construct_tokens_are_detected() -> None:
+    unit = (
+        "PROCEDURE p IS\n"
+        "  CURSOR c IS\n"
+        "    SELECT * FROM (SELECT dept, sal FROM emp)\n"
+        "    PIVOT (SUM(sal) FOR dept IN ('A', 'B'));\n"
+        "  CURSOR m IS\n"
+        "    SELECT amount FROM ledger\n"
+        "    MODEL DIMENSION BY (y) MEASURES (amount) RULES ();\n"
+        "BEGIN\n"
+        "  INSERT ALL INTO t1 VALUES (1) INTO t2 VALUES (2)\n"
+        "    SELECT 1 FROM dual;\n"
+        "  FOR r IN (SELECT sal FROM emp AS OF TIMESTAMP SYSTIMESTAMP - 1)\n"
+        "  LOOP\n"
+        "    NULL;\n"
+        "  END LOOP;\n"
+        "END;"
+    )
+    analysis = analyze_source(unit)
+    found = {f.feature for f in analysis.features}
+    assert {"pivot_clause", "model_clause", "insert_multi", "flashback_query"} <= found
+
+
+def test_construct_words_in_comments_stay_silent() -> None:
+    unit = (
+        "PROCEDURE p IS\n"
+        "  -- PIVOT ( the MODEL DIMENSION BY report, INSERT ALL rows,\n"
+        "  -- AS OF TIMESTAMP yesterday, WITH FUNCTION helpers\n"
+        "BEGIN\n"
+        "  NULL;\n"
+        "END;"
+    )
+    analysis = analyze_source(unit)
+    found = {f.feature for f in analysis.features}
+    assert not (
+        {
+            "pivot_clause",
+            "model_clause",
+            "insert_multi",
+            "flashback_query",
+            "with_function",
+            "sql_macro",
+        }
+        & found
+    )

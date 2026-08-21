@@ -20,6 +20,7 @@ from pgrecon.convert.constraints import _emit_checks, _emit_foreign_keys, _emit_
 from pgrecon.convert.extras import _emit_db_links, _emit_sequences, _emit_synonyms
 from pgrecon.convert.identifiers import ident as ident
 from pgrecon.convert.indexes import _emit_indexes
+from pgrecon.convert.mviews import _emit_mviews, mview_queries
 from pgrecon.convert.residue import Residue as Residue
 from pgrecon.convert.tables import emit_tables
 from pgrecon.convert.triggers import _emit_triggers
@@ -40,6 +41,7 @@ class Conversion:
     db_links: int
     routines: int
     triggers: int
+    mviews: int = 0
 
 
 def convert_schema(db: Path) -> Conversion:
@@ -72,11 +74,18 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
     # PostgreSQL resolves that at CREATE TABLE time.
     sequence_count, sequence_names = _emit_sequences(conn, out, residue)
 
-    table_count, partition_count = emit_tables(conn, out, residue, emitted, dropped)
+    # Materialized-view containers with a captured defining query
+    # convert as real materialized views right after their base
+    # tables; constraints and triggers must decline them by name.
+    mv_names = {name for (_, name) in mview_queries(conn)}
+    table_count, partition_count = emit_tables(
+        conn, out, residue, emitted, dropped, mv_names
+    )
+    mview_count = _emit_mviews(conn, out, residue, emitted, dropped, set())
 
-    constraint_count += _emit_keys(conn, out, residue, emitted)
-    constraint_count += _emit_checks(conn, out, residue, emitted, dropped)
-    constraint_count += _emit_foreign_keys(conn, out, residue, emitted)
+    constraint_count += _emit_keys(conn, out, residue, emitted, mv_names)
+    constraint_count += _emit_checks(conn, out, residue, emitted, dropped, mv_names)
+    constraint_count += _emit_foreign_keys(conn, out, residue, emitted, mv_names)
     index_count = _emit_indexes(conn, out, residue, emitted)
     view_count, created_views = _emit_views(conn, out, residue, emitted, dropped)
     synonym_count, synonym_names = _emit_synonyms(
@@ -90,6 +99,7 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
         out,
         residue,
         emitted,
+        mv_names,
         sequence_names,
         {t for (_, t) in emitted} | created_views | synonym_names,
         frozenset(
@@ -126,6 +136,7 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
         link_count,
         routine_count,
         trigger_count,
+        mview_count,
     )
 
 

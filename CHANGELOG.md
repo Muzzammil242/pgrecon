@@ -4,6 +4,23 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
 ## Unreleased
 
+- Materialized views convert for real when the dump carries their
+  defining query: CREATE MATERIALIZED VIEW with the container's
+  column names, the query through the same translation and guards as
+  views, and notes for the refresh method and query rewrite.
+  Constraints, foreign keys, and triggers that target a materialized
+  view refuse by name - PostgreSQL does not allow them there.
+  Query-less dumps keep the container-table behavior.
+- Ten rules from the field close the gap catalog at 74: MODEL,
+  PIVOT/UNPIVOT, flashback queries, multi-table INSERT, WITH
+  FUNCTION, SQL macros, invisible columns, read-only tables,
+  DEFAULT ON NULL, and materialized view logs. The SQL constructs
+  detect at the token level, so a PIVOT in a comment stays silent.
+- pgrecon runbook generates the data-movement artifacts: a data-only
+  ora2pg configuration, row-count and spot-sum validation SQL for
+  both engines, post-load sequence alignment, materialized view
+  refresh and ANALYZE steps, and the cutover checklist. The tool
+  still never connects to a database; it directs the move instead.
 - The extraction scripts capture license posture and the two facts
   that were LONG-locked. license.csv carries the edition banner and
   cpu counts; feature_usage.csv carries DBA_FEATURE_USAGE_STATISTICS

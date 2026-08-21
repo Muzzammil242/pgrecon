@@ -644,3 +644,63 @@ def test_null_generated_index_still_fires(
         )
     conn.commit()
     assert sorted(fired(db, "R-IDX-02")) == ["FBI_A", "FBI_B"]
+
+
+def test_gap_pack_rules_fire(inventory: tuple[sqlite3.Connection, Path]) -> None:
+    conn, db = inventory
+    # Unparsed source exercises every grep fallback half.
+    for line, text in enumerate(
+        [
+            "PROCEDURE gap_zoo IS BEGIN",
+            "  SELECT 1 FROM t MODEL DIMENSION BY (x) MEASURES (y) RULES ();",
+            "  SELECT * FROM sales PIVOT (SUM(amt) FOR y IN (1));",
+            "  SELECT * FROM emp AS OF TIMESTAMP SYSTIMESTAMP - 1;",
+            "  INSERT ALL INTO a VALUES (1) SELECT 1 FROM dual;",
+            "  WITH FUNCTION f RETURN NUMBER IS BEGIN RETURN 1; END;",
+            "  SELECT sql_macro_thing FROM dual; -- SQL_MACRO annotation",
+            "END;",
+        ],
+        start=1,
+    ):
+        conn.execute(
+            "INSERT INTO source (owner, name, type, line, text)"
+            " VALUES ('HR', 'GAP_ZOO', 'PROCEDURE', ?, ?)",
+            (line, text),
+        )
+    conn.executemany(
+        "INSERT INTO ddl (owner, name, type, ddl, parse_ok) VALUES (?, ?, ?, ?, 1)",
+        [
+            (
+                "HR",
+                "T_HIDDEN",
+                "TABLE",
+                'CREATE TABLE "HR"."T_HIDDEN" ("ID" NUMBER,'
+                ' "SECRET" VARCHAR2(10) INVISIBLE)',
+            ),
+            (
+                "HR",
+                "T_FROZEN",
+                "TABLE",
+                'CREATE TABLE "HR"."T_FROZEN" ("ID" NUMBER) READ ONLY',
+            ),
+            (
+                "HR",
+                "T_DEFN",
+                "TABLE",
+                'CREATE TABLE "HR"."T_DEFN" ("ID" NUMBER,'
+                " \"KIND\" VARCHAR2(4) DEFAULT ON NULL 'STD')",
+            ),
+        ],
+    )
+    conn.execute("INSERT INTO tables (owner, table_name) VALUES ('HR', 'MLOG$_ORDERS')")
+    conn.commit()
+    assert fired(db, "R-SRC-22") == ["GAP_ZOO"]
+    assert fired(db, "R-SRC-23") == ["GAP_ZOO"]
+    assert fired(db, "R-SRC-24") == ["GAP_ZOO"]
+    assert fired(db, "R-SRC-25") == ["GAP_ZOO"]
+    assert fired(db, "R-SRC-26") == ["GAP_ZOO"]
+    assert fired(db, "R-SRC-27") == ["GAP_ZOO"]
+    assert fired(db, "R-TAB-04") == ["T_HIDDEN"]
+    assert fired(db, "R-TAB-05") == ["T_FROZEN"]
+    assert fired(db, "R-TAB-06") == ["T_DEFN"]
+    assert fired(db, "R-OBJ-10") == ["MLOG$_ORDERS"]

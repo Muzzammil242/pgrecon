@@ -159,4 +159,57 @@ RULES = [
             " FROM tables WHERE num_rows IS NULL"
         ),
     ),
+    Rule(
+        id="R-TAB-04",
+        title="Invisible column",
+        category="tables",
+        severity=Severity.LOW,
+        effort=0.5,
+        remedy=(
+            "PostgreSQL columns are always visible: after conversion the"
+            " column appears in SELECT * and positional INSERTs, which"
+            " is exactly what INVISIBLE existed to prevent. Audit the"
+            " statements that relied on its absence."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, 'TABLE', 'INVISIBLE column in table DDL'"
+            " FROM ddl WHERE type = 'TABLE' AND UPPER(ddl) LIKE '%INVISIBLE%'"
+        ),
+    ),
+    Rule(
+        id="R-TAB-05",
+        title="Read-only table",
+        category="tables",
+        severity=Severity.LOW,
+        effort=0.5,
+        remedy=(
+            "ALTER TABLE ... READ ONLY does not exist in PostgreSQL."
+            " Enforce immutability with REVOKE of write privileges, or"
+            " a trigger that raises on modification when even the owner"
+            " must be stopped."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, 'TABLE', 'READ ONLY table' FROM ddl"
+            " WHERE type = 'TABLE' AND UPPER(ddl) LIKE '%READ ONLY%'"
+        ),
+    ),
+    Rule(
+        id="R-TAB-06",
+        title="DEFAULT ON NULL column",
+        category="tables",
+        severity=Severity.MEDIUM,
+        effort=0.5,
+        remedy=(
+            "Oracle applies the default when an INSERT supplies an"
+            " explicit NULL; a PostgreSQL default only fires when the"
+            " column is omitted. Applications inserting NULL and"
+            " expecting the default need a BEFORE trigger or a fixed"
+            " statement."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, 'TABLE', 'DEFAULT ON NULL in table DDL'"
+            " FROM ddl WHERE type = 'TABLE'"
+            " AND UPPER(ddl) LIKE '%DEFAULT ON NULL%'"
+        ),
+    ),
 ]
