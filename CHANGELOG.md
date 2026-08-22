@@ -2,7 +2,7 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## Unreleased
+## 0.5.0 - 2026-08-23
 
 - Materialized views convert for real when the dump carries their
   defining query: CREATE MATERIALIZED VIEW with the container's
