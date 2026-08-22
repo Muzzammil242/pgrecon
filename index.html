@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pgrecon &mdash; Oracle to PostgreSQL migration reconnaissance</title>
-<meta name="description" content="Assess and convert an Oracle-to-PostgreSQL migration from an offline dump. Open-source engine: 63+ compatibility rules, effort estimates, and schema conversion that names everything it cannot prove.">
+<meta name="description" content="Assess and convert an Oracle-to-PostgreSQL migration from an offline dump. Open-source engine: 74 compatibility rules, effort estimates, and schema conversion that names everything it cannot prove.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23336791'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='15' font-weight='bold' fill='white' text-anchor='middle'%3Epg%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -135,12 +135,12 @@
       <div class="step">
         <div class="n">02 &mdash; ASSESS</div>
         <h3>Parser-grade findings</h3>
-        <p>The dump becomes a local SQLite inventory. An ANTLR PL/SQL grammar and 63+ compatibility rules turn it into findings with remedies, plus a defensible effort estimate in person-days.</p>
+        <p>The dump becomes a local SQLite inventory. An ANTLR PL/SQL grammar and 74 compatibility rules turn it into findings with remedies, plus a defensible effort estimate in person-days.</p>
       </div>
       <div class="step">
         <div class="n">03 &mdash; CONVERT</div>
         <h3>Prove it or name it</h3>
-        <p>Schema structure converts to PostgreSQL DDL offline: tables, keys, indexes, views, triggers, routines. Everything unproven becomes a named line in a residue report.</p>
+        <p>Schema structure converts to PostgreSQL DDL offline: tables, keys, indexes, views, materialized views, triggers, routines - plus a generated data-movement runbook with validation SQL and a cutover checklist. Everything unproven becomes a named line in a residue report.</p>
       </div>
     </div>
   </div>
@@ -153,7 +153,7 @@
     <div class="residue"><span class="k">view</span>         CO.PRODUCT_REVIEWS: uses JSON_TABLE, which PostgreSQL adds in version 17 with different clause syntax; rewrite the view by hand
 <span class="k">trigger</span>      RECON_TEST.TRG_EMP_AUDIT: runs an autonomous transaction; redesign with dblink or a queue (line 5)
 <span class="k">trigger</span>      RECON_TEST.TRG_EMP_SAL_GUARD: compound triggers combine timing points; restructure as separate triggers by hand
-<span class="k">mat. view</span>    RECON_TEST.MV_DEPT_SALARIES: materialized view emitted as a plain table; the defining query is not in the inventory - recreate it as CREATE MATERIALIZED VIEW and schedule REFRESH by hand (Oracle refresh method: COMPLETE)</div>
+<span class="k">column</span>       RECON_TEST.LEGACY_REFS.SCAN_DOC: external file locators have no counterpart</div>
     <p class="note">A migration stalls on surprises, not on work. The residue report is the complete list of surprises, priced and named, before anyone touches production.</p>
   </div>
 </section>
@@ -186,7 +186,7 @@
         <h3>The engine</h3>
         <ul>
           <li>Offline extraction script and SQLite inventory</li>
-          <li>63+ compatibility rules with remedies</li>
+          <li>74 compatibility rules with remedies</li>
           <li>Effort estimate in person-days, assumptions stated</li>
           <li>Schema conversion with the residue report</li>
           <li>Text and JSON output for your own tooling</li>
