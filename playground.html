@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pgrecon playground - the full CLI in your browser</title>
+<meta name="description" content="Run the real pgrecon CLI against an Oracle extraction dump entirely in your browser. Client-side WebAssembly; nothing is uploaded anywhere.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23336791'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='15' font-weight='bold' fill='white' text-anchor='middle'%3Epg%3C/text%3E%3C/svg%3E">
+<style>
+  body {
+    margin: 0 auto;
+    max-width: 52em;
+    padding: 2em 1em 4em;
+    background: #ffffff;
+    color: #1c1c1c;
+    font-family: -apple-system, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  .masthead { border-left: 4px solid #336791; padding-left: .8em; margin-bottom: 1.2em; }
+  h1 { font-size: 2em; margin: 0 0 .05em; }
+  h1 small { font-size: .5em; font-weight: normal; color: #555; }
+  .ver { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+         font-size: .55em; color: #336791; font-weight: normal; margin-left: .4em; }
+  h2 { font-size: 1.2em; margin: 2.2em 0 .4em; border-bottom: 2px solid #336791; padding-bottom: .2em; }
+  p { margin: .6em 0; }
+  a { color: #336791; }
+  .top { color: #555; margin: .2em 0 1em; }
+  .nav { margin: .8em 0 0; }
+  .nav a { margin-right: 1.2em; }
+  pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    background: #f6f6f4;
+    border: 1px solid #ddd;
+    padding: .8em 1em;
+    overflow-x: auto;
+  }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; background: #f6f6f4; padding: .05em .3em; }
+  .fine { color: #555; font-size: 14px; }
+  button {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    background: #f6f6f4;
+    color: #1c1c1c;
+    border: 1px solid #bbb;
+    border-left: 3px solid #336791;
+    padding: .5em .9em;
+    margin: .15em .3em .15em 0;
+    cursor: pointer;
+  }
+  button:hover:enabled { background: #eceae6; }
+  button:disabled { color: #999; border-left-color: #bbb; cursor: default; }
+  #boot-btn { border-left-color: #116329; }
+  #term {
+    min-height: 8em;
+    max-height: 34em;
+    overflow-y: auto;
+    white-space: pre;
+  }
+  #term .d { color: #888; }
+  #term .k { color: #336791; font-weight: bold; }
+  #status { color: #555; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: .4em 0; min-height: 1.4em; }
+  input[type=file] { font-size: 13px; margin: .3em 0; }
+  details { margin: .8em 0; }
+  summary { cursor: pointer; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; color: #336791; }
+  footer { margin-top: 3em; border-top: 1px solid #ddd; padding-top: 1em; color: #555; font-size: 14px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #191919; color: #d6d6d6; }
+    a { color: #7cb3d9; }
+    footer, pre, button { border-color: #3a3a3a; }
+    h2 { border-color: #4e82ab; }
+    .masthead { border-left-color: #4e82ab; }
+    pre, code, button { background: #222; }
+    button { color: #d6d6d6; border-left-color: #4e82ab; }
+    button:hover:enabled { background: #2b2b2b; }
+    button:disabled { color: #777; border-left-color: #3a3a3a; }
+    #boot-btn { border-left-color: #3a9152; }
+    .top, .fine, footer, h1 small, #status { color: #999; }
+    .ver, summary, #term .k { color: #7cb3d9; }
+  }
+</style>
+</head>
+<body>
+
+<div class="masthead">
+<h1>pgrecon playground<span class="ver">v0.5.0</span><br><small>the full CLI, in your browser</small></h1>
+<p class="top">This page runs the real pgrecon - the same package
+<code>pip install pgrecon</code> gives you, not a demo build - inside a
+Python runtime compiled to WebAssembly. There is no server behind this
+page: the runtime and the package download once, then everything,
+including any dump you open, stays in this tab. Close it and it is gone.</p>
+</div>
+<p class="nav">
+  <a href="./">Back to pgrecon</a>
+  <a href="https://github.com/Muzzammil242/pgrecon">GitHub</a>
+  <a href="https://pypi.org/project/pgrecon/">PyPI</a>
+</p>
+
+<h2>1. Boot the runtime</h2>
+<p>Downloads about 15 MB once: the Python runtime, then
+<code>pgrecon==0.5.0</code> and its three dependencies straight from PyPI.</p>
+<button id="boot-btn" onclick="boot()">Boot Python + pip install pgrecon</button>
+<div id="status"></div>
+
+<h2>2. Load an estate</h2>
+<p>Use the extraction dump from a live Oracle XE 21c that ships in the
+repository, or open one of your own - the folder of spool files the
+<code>pgrecon script</code> extraction produces. Loading deep-parses every
+stored PL/SQL unit with a full grammar; under WebAssembly that takes around
+a minute and the tab will feel frozen while it works. The installed CLI
+does the same in seconds.</p>
+<button id="sample-btn" onclick="loadSample()" disabled>Load the bundled Oracle 21c dump</button>
+<span class="fine">or open your own:</span>
+<input type="file" id="own" multiple disabled onchange="loadOwn(this.files)">
+<p class="fine">Select all files inside your dump folder. They are read into
+the in-tab filesystem only; nothing is uploaded, and you can verify that
+with the network panel of your browser's developer tools.</p>
+
+<h2>3. Run pgrecon</h2>
+<div id="cmds">
+<button disabled onclick="cmd(['report','--db','/inv.db'])">report</button>
+<button disabled onclick="cmd(['report','--db','/inv.db','--remedies'])">report --remedies</button>
+<button disabled onclick="cmd(['estimate','--db','/inv.db'])">estimate</button>
+<button disabled onclick="cmd(['info','--db','/inv.db'])">info</button>
+<button disabled onclick="convertCmd()">convert</button>
+<button id="explain-btn" disabled onclick="cmd(['explain'])">explain (rule catalog)</button>
+</div>
+
+<pre id="term"><span class="d">The session transcript appears here.</span>
+</pre>
+
+<details id="ddl-box" hidden>
+<summary>schema_pg.sql - the emitted PostgreSQL DDL</summary>
+<pre id="ddl-out"></pre>
+</details>
+<details id="residue-box" hidden>
+<summary>schema_residue.txt - everything declined, by name, with the reason</summary>
+<pre id="residue-out"></pre>
+</details>
+
+<footer>
+The playground pins pgrecon 0.5.0 and is one hand-written HTML file -
+view source to audit it. Runtime: <a href="https://pyodide.org">Pyodide</a>.
+Part of <a href="./">pgrecon</a>, Apache-2.0.
+</footer>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<script>
+"use strict";
+let py = null;
+let booted = false;
+let loaded = false;
+
+const SAMPLE_BASE = "https://raw.githubusercontent.com/Muzzammil242/pgrecon/main/examples/dump_oracle21c/";
+const SAMPLE_FILES = [
+  "check_conditions.csv", "columns.csv", "constraint_columns.csv",
+  "constraints.csv", "db_links.csv", "ddl_sequences.sql", "ddl_tables.sql",
+  "ddl_views.sql", "dependencies.csv", "features.csv", "index_columns.csv",
+  "index_expressions.csv", "indexes.csv", "meta.csv", "mviews.csv",
+  "objects.csv", "part_indexes.csv", "part_key_columns.csv",
+  "part_tables.csv", "plan_management.csv", "source.csv", "synonyms.csv",
+  "tables.csv", "triggers.csv"
+];
+
+function status(text) {
+  document.getElementById("status").textContent = text;
+}
+
+function termLine(text, cls) {
+  const term = document.getElementById("term");
+  if (cls) {
+    const span = document.createElement("span");
+    span.className = cls;
+    span.textContent = text;
+    term.appendChild(span);
+  } else {
+    term.appendChild(document.createTextNode(text));
+  }
+  term.scrollTop = term.scrollHeight;
+}
+
+function prompt(argv) {
+  termLine("$ ", "d");
+  termLine("pgrecon " + argv.join(" ") + "\n", "k");
+}
+
+function enable(sel, on) {
+  document.querySelectorAll(sel).forEach(el => { el.disabled = !on; });
+}
+
+async function boot() {
+  if (booted) return;
+  const btn = document.getElementById("boot-btn");
+  btn.disabled = true;
+  try {
+    status("downloading the Python runtime...");
+    py = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/" });
+    status("loading sqlite and pip...");
+    await py.loadPackage(["micropip", "sqlite3"]);
+    status("pip install pgrecon==0.5.0 ...");
+    const micropip = py.pyimport("micropip");
+    await micropip.install("pgrecon==0.5.0");
+    status("importing pgrecon (first import compiles the parser tables)...");
+    await new Promise(r => setTimeout(r, 30));
+    py.runPython(`
+from typer.testing import CliRunner
+from pgrecon.cli import app
+from pgrecon import __version__
+_runner = CliRunner()
+
+def run_cmd(*args):
+    result = _runner.invoke(app, list(args))
+    out = result.output
+    if result.exception is not None and not isinstance(result.exception, SystemExit):
+        import traceback
+        out += "".join(traceback.format_exception(result.exception))
+    return out
+`);
+    const ver = py.runPython("__import__('pgrecon').__version__");
+    booted = true;
+    status("ready - pgrecon " + ver + " installed in this tab");
+    termLine("$ ", "d"); termLine("pip install pgrecon==" + ver + "\n", "k");
+    termLine("done: real package, from PyPI, running client-side\n\n");
+    enable("#sample-btn, #own", true);
+    document.getElementById("explain-btn").disabled = false;
+  } catch (err) {
+    status("boot failed: " + err);
+    btn.disabled = false;
+  }
+}
+
+async function fetchSample() {
+  py.FS.mkdirTree("/dump");
+  let done = 0;
+  await Promise.all(SAMPLE_FILES.map(async name => {
+    const resp = await fetch(SAMPLE_BASE + name);
+    if (!resp.ok) throw new Error("fetch failed: " + name);
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    py.FS.writeFile("/dump/" + name, buf);
+    done += 1;
+    status("fetching the sample dump from the repository... " + done + "/" + SAMPLE_FILES.length);
+  }));
+}
+
+function runLoad(dir, label) {
+  status("deep-parsing PL/SQL - the tab may freeze for a minute; that is the full grammar working...");
+  const t0 = performance.now();
+  prompt(["load", label, "--db", "/inv.db"]);
+  setTimeout(() => {
+    try {
+      const out = py.globals.get("run_cmd")("load", dir, "--db", "/inv.db");
+      const secs = ((performance.now() - t0) / 1000).toFixed(1);
+      termLine(out + "\n");
+      status("loaded in " + secs + "s under WebAssembly (the installed CLI takes seconds)");
+      loaded = true;
+      enable("#cmds button", true);
+    } catch (err) {
+      termLine("load failed: " + err + "\n");
+      status("load failed");
+    }
+  }, 60);
+}
+
+async function loadSample() {
+  enable("#sample-btn, #own", false);
+  try {
+    await fetchSample();
+  } catch (err) {
+    status("could not fetch the sample dump: " + err);
+    enable("#sample-btn, #own", true);
+    return;
+  }
+  runLoad("/dump", "examples/dump_oracle21c");
+}
+
+function loadOwn(files) {
+  if (!files.length) return;
+  enable("#sample-btn, #own", false);
+  try { py.FS.mkdirTree("/userdump"); } catch (e) {}
+  let pending = files.length;
+  status("reading " + files.length + " files into the tab...");
+  for (const f of files) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      py.FS.writeFile("/userdump/" + f.name, new Uint8Array(reader.result));
+      pending -= 1;
+      if (pending === 0) runLoad("/userdump", "your-dump");
+    };
+    reader.readAsArrayBuffer(f);
+  }
+}
+
+function cmd(argv) {
+  prompt(argv);
+  setTimeout(() => {
+    const out = py.globals.get("run_cmd")(...argv);
+    termLine(out + "\n");
+  }, 30);
+}
+
+function convertCmd() {
+  const argv = ["convert", "--db", "/inv.db", "--out", "/schema_pg.sql", "--residue", "/schema_residue.txt"];
+  prompt(argv);
+  setTimeout(() => {
+    const out = py.globals.get("run_cmd")(...argv);
+    termLine(out + "\n");
+    document.getElementById("ddl-out").textContent = py.FS.readFile("/schema_pg.sql", { encoding: "utf8" });
+    document.getElementById("residue-out").textContent = py.FS.readFile("/schema_residue.txt", { encoding: "utf8" });
+    document.getElementById("ddl-box").hidden = false;
+    document.getElementById("residue-box").hidden = false;
+  }, 30);
+}
+</script>
+
+</body>
+</html>
