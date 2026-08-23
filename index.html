@@ -159,8 +159,10 @@ already on the host, reconstructs DDL from the catalog where
 DBMS_METADATA falls short, respects pre-10.2 output limits, and
 degrades cleanly where old servers lack a view - a 9.2 dump simply
 carries fewer files, never an error. The rest of the pipeline is
-identical, and the assessment it produces is the same document as the
-sample above.</p>
+identical, and the assessment it produces is the same document:
+<a href="pgrecon-sample-assessment-oracle11g.pdf">sample report from a
+live Oracle 11.2.0.2 database (PDF)</a>, extracted with the legacy
+script end to end.</p>
 
 <h2>Try it without an Oracle instance</h2>
 <p>A real extraction dump from Oracle XE 21c ships in the repository:</p>
