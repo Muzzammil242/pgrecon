@@ -868,3 +868,46 @@ def test_unconvertible_bound_omits_all_children(parts_db: Path) -> None:
         if r.object_name == "BROKEN" and r.kind == "partitioning"
     ]
     assert reasons and "children omitted" in reasons[0]
+
+
+def test_comments_and_grants_travel_with_the_schema(facts_db: Path) -> None:
+    import sqlite3
+
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO table_comments (owner, table_name, comments) VALUES
+          ('HR', 'EMP', 'People on payroll'),
+          ('HR', 'GHOST', 'comment on an unconverted table');
+        INSERT INTO column_comments
+          (owner, table_name, column_name, comments) VALUES
+          ('HR', 'EMP', 'SALARY', 'Gross, it''s monthly'),
+          ('HR', 'SCANS', 'DOC', 'comment on a dropped column');
+        INSERT INTO grants
+          (grantee, owner, table_name, privilege, grantable) VALUES
+          ('APP_RO', 'HR', 'EMP', 'SELECT', 'NO'),
+          ('APP_RO', 'HR', 'EMP', 'READ', 'NO'),
+          ('APP_RW', 'HR', 'EMP', 'UPDATE', 'YES'),
+          ('PUBLIC', 'HR', 'DEPT', 'SELECT', 'NO'),
+          ('APP_RW', 'HR', 'EMP', 'FLASHBACK', 'NO'),
+          ('APP_RO', 'HR', 'GHOST', 'SELECT', 'NO');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    sql = result.sql
+    assert "COMMENT ON TABLE emp IS 'People on payroll';" in sql
+    assert "COMMENT ON COLUMN emp.salary IS 'Gross, it''s monthly';" in sql
+    # A comment follows its object: gone object, gone comment.
+    assert "GHOST" not in sql and "unconverted table" not in sql
+    assert "dropped column" not in sql
+    # Roles bootstrap idempotently, grants map, grantable carries.
+    assert "IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'app_ro')" in sql
+    assert "GRANT SELECT ON emp TO app_ro;" in sql
+    assert "GRANT UPDATE ON emp TO app_rw WITH GRANT OPTION;" in sql
+    assert "GRANT SELECT ON dept TO PUBLIC;" in sql
+    # Oracle READ maps to SELECT; FLASHBACK declines by name.
+    assert sql.count("GRANT SELECT ON emp TO app_ro;") == 2
+    reasons = [r.reason for r in result.residue if r.kind == "grant"]
+    assert reasons and "FLASHBACK" in reasons[0]

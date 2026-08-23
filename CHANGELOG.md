@@ -2,6 +2,23 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## Unreleased
+
+- Privileges and documentation travel with the schema. The extraction
+  captures object grants, table and column comments, and the database
+  character set in both script tiers; the converter emits COMMENT ON
+  for every surviving object and GRANT statements with their roles
+  bootstrapped idempotently - Oracle READ maps to SELECT, sequence
+  privileges map to USAGE and UPDATE, and anything without a direct
+  counterpart is a named residue line, EXECUTE included, because
+  PostgreSQL grants on routines need an argument list. Two rules
+  join the catalog at 76: the character-set encoding decision and a
+  per-grantee inventory of grants to migrate.
+- The runbook writes apply_schema.sh: the converted structure, the
+  flattened packages, and the reviewed drafts applied in order with
+  an error log - the script this project kept writing by hand on the
+  lab bench, finally an artifact the client's DBA runs.
+
 ## 0.5.0 - 2026-08-23
 
 - Materialized views convert for real when the dump carries their

@@ -704,3 +704,37 @@ def test_gap_pack_rules_fire(inventory: tuple[sqlite3.Connection, Path]) -> None
     assert fired(db, "R-TAB-05") == ["T_FROZEN"]
     assert fired(db, "R-TAB-06") == ["T_DEFN"]
     assert fired(db, "R-OBJ-10") == ["MLOG$_ORDERS"]
+
+
+def test_charset_rule_fires_off_utf8_only(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.execute(
+        "INSERT INTO nls_params (key, value) VALUES"
+        " ('NLS_CHARACTERSET', 'WE8MSWIN1252')"
+    )
+    conn.commit()
+    assert fired(db, "R-ENV-01") == ["WE8MSWIN1252"]
+    conn.execute(
+        "UPDATE nls_params SET value = 'AL32UTF8' WHERE key = 'NLS_CHARACTERSET'"
+    )
+    conn.commit()
+    assert fired(db, "R-ENV-01") == []
+
+
+def test_grants_rule_counts_per_grantee(
+    inventory: tuple[sqlite3.Connection, Path],
+) -> None:
+    conn, db = inventory
+    conn.executemany(
+        "INSERT INTO grants (grantee, owner, table_name, privilege, grantable)"
+        " VALUES (?, 'HR', ?, ?, 'NO')",
+        [
+            ("APP_RO", "EMP", "SELECT"),
+            ("APP_RO", "DEPT", "SELECT"),
+            ("APP_RW", "EMP", "UPDATE"),
+        ],
+    )
+    conn.commit()
+    assert sorted(fired(db, "R-ENV-02")) == ["APP_RO", "APP_RW"]

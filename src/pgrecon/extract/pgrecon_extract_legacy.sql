@@ -231,6 +231,46 @@ SELECT '"' || owner || '","' || REPLACE(synonym_name, '"', '""') || '","'
  ORDER BY owner, synonym_name;
 SPOOL OFF
 
+SPOOL grants.csv
+SELECT '"GRANTEE","OWNER","TABLE_NAME","PRIVILEGE","GRANTABLE"' FROM dual;
+SELECT '"' || grantee || '","' || table_schema || '","'
+       || REPLACE(table_name, '"', '""') || '","' || privilege || '","'
+       || grantable || '"'
+  FROM all_tab_privs
+ WHERE table_schema = UPPER('&schema')
+ ORDER BY table_name, grantee, privilege;
+SPOOL OFF
+
+SPOOL table_comments.csv
+SELECT '"OWNER","TABLE_NAME","COMMENTS"' FROM dual;
+SELECT '"' || owner || '","' || REPLACE(table_name, '"', '""') || '","'
+       || REPLACE(REPLACE(REPLACE(comments, '"', '""'),
+                  CHR(13), ' '), CHR(10), ' ') || '"'
+  FROM all_tab_comments
+ WHERE owner = UPPER('&schema') AND comments IS NOT NULL
+ ORDER BY table_name;
+SPOOL OFF
+
+SPOOL column_comments.csv
+SELECT '"OWNER","TABLE_NAME","COLUMN_NAME","COMMENTS"' FROM dual;
+SELECT '"' || owner || '","' || REPLACE(table_name, '"', '""') || '","'
+       || REPLACE(column_name, '"', '""') || '","'
+       || REPLACE(REPLACE(REPLACE(comments, '"', '""'),
+                  CHR(13), ' '), CHR(10), ' ') || '"'
+  FROM all_col_comments
+ WHERE owner = UPPER('&schema') AND comments IS NOT NULL
+ ORDER BY table_name, column_name;
+SPOOL OFF
+
+SPOOL nls.csv
+SELECT '"KEY","VALUE"' FROM dual;
+SELECT '"' || parameter || '","' || value || '"'
+  FROM nls_database_parameters
+ WHERE parameter IN ('NLS_CHARACTERSET', 'NLS_NCHAR_CHARACTERSET',
+                     'NLS_LANGUAGE', 'NLS_TERRITORY')
+ ORDER BY parameter;
+SPOOL OFF
+
 -- Private database links are invisible through ALL_DB_LINKS to anyone
 -- but their owner; DBA_DB_LINKS is readable with SELECT_CATALOG_ROLE,
 -- which this script already requires.

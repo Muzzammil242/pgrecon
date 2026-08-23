@@ -287,6 +287,40 @@ CSV_TABLES: dict[str, tuple[str, dict[str, str]]] = {
             "VALUE": "value",
         },
     ),
+    "grants.csv": (
+        "grants",
+        {
+            "GRANTEE": "grantee",
+            "OWNER": "owner",
+            "TABLE_NAME": "table_name",
+            "PRIVILEGE": "privilege",
+            "GRANTABLE": "grantable",
+        },
+    ),
+    "table_comments.csv": (
+        "table_comments",
+        {
+            "OWNER": "owner",
+            "TABLE_NAME": "table_name",
+            "COMMENTS": "comments",
+        },
+    ),
+    "column_comments.csv": (
+        "column_comments",
+        {
+            "OWNER": "owner",
+            "TABLE_NAME": "table_name",
+            "COLUMN_NAME": "column_name",
+            "COMMENTS": "comments",
+        },
+    ),
+    "nls.csv": (
+        "nls_params",
+        {
+            "KEY": "key",
+            "VALUE": "value",
+        },
+    ),
     "feature_usage.csv": (
         "feature_usage",
         {

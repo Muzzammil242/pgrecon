@@ -17,7 +17,13 @@ from pathlib import Path
 
 from pgrecon.convert.code import _emit_code
 from pgrecon.convert.constraints import _emit_checks, _emit_foreign_keys, _emit_keys
-from pgrecon.convert.extras import _emit_db_links, _emit_sequences, _emit_synonyms
+from pgrecon.convert.extras import (
+    _emit_comments,
+    _emit_db_links,
+    _emit_grants,
+    _emit_sequences,
+    _emit_synonyms,
+)
 from pgrecon.convert.identifiers import ident as ident
 from pgrecon.convert.indexes import _emit_indexes
 from pgrecon.convert.mviews import _emit_mviews, mview_queries
@@ -122,6 +128,11 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
         },
     )
     link_count = _emit_db_links(conn, out, residue)
+
+    # Documentation and access travel with the schema: comments for
+    # every surviving object, grants with their roles bootstrapped.
+    _emit_comments(conn, out, emitted, mv_names, created_views)
+    _emit_grants(conn, out, residue, emitted, mv_names, created_views, sequence_names)
 
     return Conversion(
         "\n".join(out),

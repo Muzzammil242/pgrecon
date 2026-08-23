@@ -275,6 +275,40 @@ SELECT owner, synonym_name, table_owner, table_name, db_link
  ORDER BY owner, synonym_name;
 SPOOL OFF
 
+-- Who can do what to the schema's objects; a migration that forgets
+-- privileges ends with a working database nobody can use.
+SPOOL grants.csv
+SELECT grantee, owner, table_name, privilege, grantable
+  FROM all_tab_privs
+ WHERE table_schema = UPPER('&schema')
+ ORDER BY table_name, grantee, privilege;
+SPOOL OFF
+
+-- Table and column comments are documentation the client already
+-- wrote; they survive the move as COMMENT ON statements.
+SPOOL table_comments.csv
+SELECT owner, table_name, comments
+  FROM all_tab_comments
+ WHERE owner = UPPER('&schema') AND comments IS NOT NULL
+ ORDER BY table_name;
+SPOOL OFF
+
+SPOOL column_comments.csv
+SELECT owner, table_name, column_name, comments
+  FROM all_col_comments
+ WHERE owner = UPPER('&schema') AND comments IS NOT NULL
+ ORDER BY table_name, column_name;
+SPOOL OFF
+
+-- The database character set decides the PostgreSQL encoding story.
+SPOOL nls.csv
+SELECT parameter AS key, value
+  FROM nls_database_parameters
+ WHERE parameter IN ('NLS_CHARACTERSET', 'NLS_NCHAR_CHARACTERSET',
+                     'NLS_LANGUAGE', 'NLS_TERRITORY')
+ ORDER BY parameter;
+SPOOL OFF
+
 SPOOL triggers.csv
 SELECT owner,
        trigger_name,

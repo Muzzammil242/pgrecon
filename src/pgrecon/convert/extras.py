@@ -187,3 +187,148 @@ def _emit_db_links(
     if count:
         out.append("")
     return count
+
+
+def _emit_comments(
+    conn: sqlite3.Connection,
+    out: list[str],
+    emitted: dict[tuple[str, str], set[str]],
+    matviews: set[str],
+    created_views: set[str],
+) -> int:
+    """COMMENT ON for surviving objects.
+
+    A comment follows its object: comments on tables, columns, or
+    views that did not convert vanish with them - their absence is
+    already a named residue line, and a comment on nothing means
+    nothing.
+    """
+    count = 0
+    tables = {t for (_, t) in emitted}
+    for r in conn.execute(
+        "SELECT owner, table_name, comments FROM table_comments ORDER BY table_name"
+    ):
+        name = (r["table_name"] or "").upper()
+        text = (r["comments"] or "").replace("'", "''")
+        if name in matviews:
+            kind = "MATERIALIZED VIEW"
+        elif name in created_views:
+            kind = "VIEW"
+        elif name in tables:
+            kind = "TABLE"
+        else:
+            continue
+        out.append(f"COMMENT ON {kind} {ident(name.lower())} IS '{text}';")
+        count += 1
+    for r in conn.execute(
+        "SELECT owner, table_name, column_name, comments FROM column_comments"
+        " ORDER BY table_name, column_name"
+    ):
+        name = (r["table_name"] or "").upper()
+        col = (r["column_name"] or "").upper()
+        kept = emitted.get((r["owner"], name))
+        if name in matviews or name in created_views:
+            pass  # matview and view columns exist; comment applies
+        elif kept is None or col not in kept:
+            continue
+        text = (r["comments"] or "").replace("'", "''")
+        out.append(
+            f"COMMENT ON COLUMN {ident(name.lower())}.{ident(col.lower())} IS '{text}';"
+        )
+        count += 1
+    if count:
+        out.append("")
+    return count
+
+
+# Oracle object privileges with a direct PostgreSQL counterpart, per
+# relation kind. EXECUTE is absent on purpose: PostgreSQL grants on
+# routines need the argument list, so they decline by name instead.
+_RELATION_PRIVS = {
+    "SELECT": "SELECT",
+    "READ": "SELECT",
+    "INSERT": "INSERT",
+    "UPDATE": "UPDATE",
+    "DELETE": "DELETE",
+    "REFERENCES": "REFERENCES",
+    "TRIGGER": "TRIGGER",
+}
+_SEQUENCE_PRIVS = {"SELECT": "USAGE, SELECT", "ALTER": "UPDATE"}
+
+
+def _emit_grants(
+    conn: sqlite3.Connection,
+    out: list[str],
+    residue: list[Residue],
+    emitted: dict[tuple[str, str], set[str]],
+    matviews: set[str],
+    created_views: set[str],
+    sequence_names: set[str],
+) -> int:
+    """Object grants, with the roles they need bootstrapped first.
+
+    Grantees become roles created only if absent, so the script stays
+    idempotent and never fights an existing user. PUBLIC stays
+    PUBLIC. A privilege with no counterpart on the object's kind is a
+    named residue line, never a dropped permission.
+    """
+    rows = conn.execute(
+        "SELECT grantee, owner, table_name, privilege, grantable FROM grants"
+        " ORDER BY table_name, grantee, privilege"
+    ).fetchall()
+    if not rows:
+        return 0
+    tables = {t for (_, t) in emitted}
+    known = tables | matviews | created_views | sequence_names
+    grantees = sorted(
+        {
+            (r["grantee"] or "").upper()
+            for r in rows
+            if (r["grantee"] or "").upper() != "PUBLIC"
+            and (r["table_name"] or "").upper() in known
+        }
+    )
+    for grantee in grantees:
+        role = ident(grantee.lower())
+        quoted = grantee.lower().replace("'", "''")
+        out.append(
+            "DO $$ BEGIN\n"
+            f"  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{quoted}')"
+            " THEN\n"
+            f"    CREATE ROLE {role};\n"
+            "  END IF;\n"
+            "END $$;"
+        )
+    count = 0
+    for r in rows:
+        name = (r["table_name"] or "").upper()
+        priv = (r["privilege"] or "").upper()
+        grantee = (r["grantee"] or "").upper()
+        if name not in known:
+            continue  # the object's absence is already named
+        if name in sequence_names:
+            mapped = _SEQUENCE_PRIVS.get(priv)
+            kind = "SEQUENCE "
+        else:
+            mapped = _RELATION_PRIVS.get(priv)
+            kind = ""
+        if mapped is None:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    f"{name}.{priv}->{grantee}",
+                    "grant",
+                    f"{priv} has no direct PostgreSQL counterpart on this"
+                    " object; grant an equivalent by hand",
+                )
+            )
+            continue
+        target = "PUBLIC" if grantee == "PUBLIC" else ident(grantee.lower())
+        option = " WITH GRANT OPTION" if (r["grantable"] or "").upper() == "YES" else ""
+        out.append(
+            f"GRANT {mapped} ON {kind}{ident(name.lower())} TO {target}{option};"
+        )
+        count += 1
+    if count or grantees:
+        out.append("")
+    return count

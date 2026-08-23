@@ -299,6 +299,36 @@ CREATE TABLE plan_management (
     enabled TEXT
 );
 
+CREATE TABLE grants (
+    grantee    TEXT NOT NULL,
+    owner      TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    privilege  TEXT NOT NULL,
+    grantable  TEXT,
+    PRIMARY KEY (grantee, owner, table_name, privilege)
+);
+
+CREATE TABLE table_comments (
+    owner      TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    comments   TEXT,
+    PRIMARY KEY (owner, table_name)
+);
+
+CREATE TABLE column_comments (
+    owner       TEXT NOT NULL,
+    table_name  TEXT NOT NULL,
+    column_name TEXT NOT NULL,
+    comments    TEXT,
+    PRIMARY KEY (owner, table_name, column_name)
+);
+
+CREATE TABLE nls_params (
+    key   TEXT NOT NULL,
+    value TEXT,
+    PRIMARY KEY (key)
+);
+
 -- Database-wide license posture: edition banner, cpu counts. Facts
 -- only; any interpretation of what they cost belongs to a human with
 -- the client's contract in hand.

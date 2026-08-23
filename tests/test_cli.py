@@ -122,7 +122,7 @@ def test_explain_lists_catalog() -> None:
     result = runner.invoke(app, ["explain"])
     assert result.exit_code == 0
     assert "R-TYPE-01" in result.output
-    assert "74 rules" in result.output
+    assert "76 rules" in result.output
 
 
 def test_explain_rejects_unknown_id() -> None:
@@ -155,6 +155,9 @@ def test_runbook_writes_artifacts(tmp_path: Path) -> None:
     out = tmp_path / "rb"
     result = runner.invoke(app, ["runbook", "--db", str(db), "--out-dir", str(out)])
     assert result.exit_code == 0, result.output
+    apply_sh = (out / "apply_schema.sh").read_text(encoding="ascii")
+    assert "apply schema_pg.sql" in apply_sh
+    assert "ON_ERROR_STOP=0" in apply_sh
     conf = (out / "ora2pg_data.conf").read_text()
     assert "SCHEMA          HR" in conf and "TYPE            COPY" in conf
     ora = (out / "validate_rowcounts_oracle.sql").read_text()
