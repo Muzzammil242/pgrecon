@@ -9,7 +9,7 @@
 <style>
   body {
     margin: 0 auto;
-    max-width: 52em;
+    max-width: 58em;
     padding: 2em 1em 4em;
     background: #ffffff;
     color: #1c1c1c;
@@ -22,63 +22,137 @@
   h1 small { font-size: .5em; font-weight: normal; color: #555; }
   .ver { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
          font-size: .55em; color: #336791; font-weight: normal; margin-left: .4em; }
-  h2 { font-size: 1.2em; margin: 2.2em 0 .4em; border-bottom: 2px solid #336791; padding-bottom: .2em; }
   p { margin: .6em 0; }
   a { color: #336791; }
   .top { color: #555; margin: .2em 0 1em; }
-  .nav { margin: .8em 0 0; }
+  .nav { margin: .8em 0 1.6em; }
   .nav a { margin-right: 1.2em; }
-  pre {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 13px;
-    line-height: 1.7;
-    background: #f6f6f4;
-    border: 1px solid #ddd;
-    padding: .8em 1em;
-    overflow-x: auto;
-  }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; background: #f6f6f4; padding: .05em .3em; }
   .fine { color: #555; font-size: 14px; }
-  button {
+
+  .panel {
+    border: 1px solid #ccc;
+    border-top: 3px solid #336791;
+    padding: .7em 1em .8em;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .35em .5em;
+  }
+  .step {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: #336791;
+    font-weight: bold;
+    letter-spacing: .05em;
+    margin-right: .2em;
+  }
+  .step:not(:first-child) { margin-left: 1.1em; }
+  button, .filebtn {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 13px;
     background: #f6f6f4;
     color: #1c1c1c;
     border: 1px solid #bbb;
-    border-left: 3px solid #336791;
-    padding: .5em .9em;
-    margin: .15em .3em .15em 0;
+    padding: .45em .8em;
     cursor: pointer;
+    display: inline-block;
   }
-  button:hover:enabled { background: #eceae6; }
-  button:disabled { color: #999; border-left-color: #bbb; cursor: default; }
-  #boot-btn { border-left-color: #116329; }
+  button:hover:enabled, .filebtn:hover { background: #eceae6; }
+  button:disabled { color: #aaa; cursor: default; background: #fafaf8; }
+  .filebtn.off { color: #aaa; cursor: default; background: #fafaf8; pointer-events: none; }
+  #boot-btn { border-color: #336791; color: #336791; font-weight: bold; }
+  #boot-btn:disabled { border-color: #bbb; color: #aaa; font-weight: normal; }
+  input[type=file] { display: none; }
+
+  .statusbar {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    color: #555;
+    margin: .5em 0 .9em;
+    min-height: 1.5em;
+    display: flex;
+    align-items: center;
+    gap: .5em;
+  }
+  .spin {
+    width: 11px; height: 11px;
+    border: 2px solid #ccc;
+    border-top-color: #336791;
+    border-radius: 50%;
+    animation: rot .7s linear infinite;
+    display: none;
+  }
+  .busy .spin { display: inline-block; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+
+  .titlebar {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    background: #161b22;
+    color: #8b949e;
+    border: 1px solid #30363d;
+    border-bottom: 0;
+    padding: .45em .9em;
+    display: flex;
+    justify-content: space-between;
+    letter-spacing: .03em;
+  }
+  .titlebar .live { color: #56d364; }
   #term {
-    min-height: 8em;
-    max-height: 34em;
-    overflow-y: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    background: #0d1117;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    padding: .8em 1em;
+    margin: 0 0 1em;
+    min-height: 14em;
+    max-height: 36em;
+    overflow: auto;
     white-space: pre;
   }
-  #term .d { color: #888; }
-  #term .k { color: #336791; font-weight: bold; }
-  #status { color: #555; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: .4em 0; min-height: 1.4em; }
-  input[type=file] { font-size: 13px; margin: .3em 0; }
+  #term .d { color: #8b949e; }
+  #term .c { color: #79c0ff; font-weight: bold; }
+  #term .sys { color: #8b949e; font-style: italic; }
+  #term .sev-blocker, #term .sev-high { color: #ff7b72; font-weight: bold; }
+  #term .sev-medium { color: #ffa657; }
+  #term .sev-low { color: #79c0ff; }
+  #term .sev-info { color: #8b949e; }
+  #term .rid { color: #79c0ff; }
+  #term .sum { color: #e6edf3; font-weight: bold; }
+
   details { margin: .8em 0; }
   summary { cursor: pointer; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; color: #336791; }
+  details pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    background: #0d1117;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    padding: .8em 1em;
+    overflow: auto;
+    max-height: 30em;
+  }
+  details pre .k { color: #79c0ff; }
   footer { margin-top: 3em; border-top: 1px solid #ddd; padding-top: 1em; color: #555; font-size: 14px; }
   @media (prefers-color-scheme: dark) {
     body { background: #191919; color: #d6d6d6; }
     a { color: #7cb3d9; }
-    footer, pre, button { border-color: #3a3a3a; }
-    h2 { border-color: #4e82ab; }
+    footer { border-color: #3a3a3a; }
     .masthead { border-left-color: #4e82ab; }
-    pre, code, button { background: #222; }
-    button { color: #d6d6d6; border-left-color: #4e82ab; }
-    button:hover:enabled { background: #2b2b2b; }
-    button:disabled { color: #777; border-left-color: #3a3a3a; }
-    #boot-btn { border-left-color: #3a9152; }
-    .top, .fine, footer, h1 small, #status { color: #999; }
-    .ver, summary, #term .k { color: #7cb3d9; }
+    .panel { border-color: #3a3a3a; border-top-color: #4e82ab; }
+    code { background: #222; }
+    button, .filebtn { background: #222; color: #d6d6d6; border-color: #3a3a3a; }
+    button:hover:enabled, .filebtn:hover { background: #2b2b2b; }
+    button:disabled, .filebtn.off { color: #777; background: #1e1e1e; }
+    #boot-btn { border-color: #4e82ab; color: #7cb3d9; }
+    #boot-btn:disabled { border-color: #3a3a3a; color: #777; }
+    .top, .fine, footer, h1 small, .statusbar { color: #999; }
+    .ver, .step, summary { color: #7cb3d9; }
+    .spin { border-color: #3a3a3a; border-top-color: #7cb3d9; }
   }
 </style>
 </head>
@@ -86,11 +160,10 @@
 
 <div class="masthead">
 <h1>pgrecon playground<span class="ver">v0.5.0</span><br><small>the full CLI, in your browser</small></h1>
-<p class="top">This page runs the real pgrecon - the same package
-<code>pip install pgrecon</code> gives you, not a demo build - inside a
-Python runtime compiled to WebAssembly. There is no server behind this
-page: the runtime and the package download once, then everything,
-including any dump you open, stays in this tab. Close it and it is gone.</p>
+<p class="top">The real package from PyPI - not a demo build - running
+client-side in a WebAssembly Python. There is no server behind this page:
+any dump you open stays in this tab, which you can verify in the network
+panel of your browser's developer tools.</p>
 </div>
 <p class="nav">
   <a href="./">Back to pgrecon</a>
@@ -98,37 +171,27 @@ including any dump you open, stays in this tab. Close it and it is gone.</p>
   <a href="https://pypi.org/project/pgrecon/">PyPI</a>
 </p>
 
-<h2>1. Boot the runtime</h2>
-<p>Downloads about 15 MB once: the Python runtime, then
-<code>pgrecon==0.5.0</code> and its three dependencies straight from PyPI.</p>
-<button id="boot-btn" onclick="boot()">Boot Python + pip install pgrecon</button>
-<div id="status"></div>
-
-<h2>2. Load an estate</h2>
-<p>Use the extraction dump from a live Oracle XE 21c that ships in the
-repository, or open one of your own - the folder of spool files the
-<code>pgrecon script</code> extraction produces. Loading deep-parses every
-stored PL/SQL unit with a full grammar; under WebAssembly that takes a
-minute or two and the tab will feel frozen while it works. The installed
-CLI does the same in seconds.</p>
-<button id="sample-btn" onclick="loadSample()" disabled>Load the bundled Oracle 21c dump</button>
-<span class="fine">or open your own:</span>
-<input type="file" id="own" multiple disabled onchange="loadOwn(this.files)">
-<p class="fine">Select all files inside your dump folder. They are read into
-the in-tab filesystem only; nothing is uploaded, and you can verify that
-with the network panel of your browser's developer tools.</p>
-
-<h2>3. Run pgrecon</h2>
-<div id="cmds">
-<button disabled onclick="cmd(['report','--db','/inv.db'])">report</button>
-<button disabled onclick="cmd(['report','--db','/inv.db','--remedies'])">report --remedies</button>
-<button disabled onclick="cmd(['estimate','--db','/inv.db'])">estimate</button>
-<button disabled onclick="cmd(['info','--db','/inv.db'])">info</button>
-<button disabled onclick="convertCmd()">convert</button>
-<button id="explain-btn" disabled onclick="cmd(['explain'])">explain (rule catalog)</button>
+<div class="panel">
+  <span class="step">1 BOOT</span>
+  <button id="boot-btn" onclick="boot()">pip install pgrecon</button>
+  <span class="step">2 LOAD</span>
+  <button id="sample-btn" onclick="loadSample()" disabled>bundled Oracle 21c dump</button>
+  <label class="filebtn off" id="own-label" for="own">open your own dump</label>
+  <input type="file" id="own" multiple onchange="loadOwn(this.files)">
+  <span class="step">3 RUN</span>
+  <button class="cmdbtn" disabled onclick="cmd(['report','--db','/inv.db'])">report</button>
+  <button class="cmdbtn" disabled onclick="cmd(['report','--db','/inv.db','--remedies'])">--remedies</button>
+  <button class="cmdbtn" disabled onclick="cmd(['estimate','--db','/inv.db'])">estimate</button>
+  <button class="cmdbtn" disabled onclick="convertCmd()">convert</button>
+  <button class="cmdbtn" disabled onclick="cmd(['info','--db','/inv.db'])">info</button>
+  <button id="explain-btn" disabled onclick="cmd(['explain'])">rule catalog</button>
 </div>
+<div class="statusbar" id="statusbar"><span class="spin"></span><span id="status">Boot downloads about 15 MB once: the Python runtime, then pgrecon and its dependencies from PyPI.</span></div>
 
-<pre id="term"><span class="d">The session transcript appears here.</span>
+<div class="titlebar"><span>pgrecon - browser session</span><span class="live">client-side only</span></div>
+<pre id="term"><span class="d">The session transcript appears here. Loading deep-parses every stored
+PL/SQL unit with the full grammar; under WebAssembly that takes a minute
+or two - the installed CLI does it in seconds.</span>
 </pre>
 
 <details id="ddl-box" hidden>
@@ -140,18 +203,18 @@ with the network panel of your browser's developer tools.</p>
 <pre id="residue-out"></pre>
 </details>
 
+<p class="fine">Own dump: select all files inside the folder the
+<code>pgrecon script</code> extraction produced. They are read into the
+in-tab filesystem only; nothing is uploaded anywhere.</p>
+
 <footer>
 The playground pins pgrecon 0.5.0 and is one hand-written HTML file -
 view source to audit it. Runtime: <a href="https://pyodide.org">Pyodide</a>.
 Part of <a href="./">pgrecon</a>, Apache-2.0.
 </footer>
 
-<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
 <script>
 "use strict";
-let py = null;
-let booted = false;
-let loaded = false;
 
 const SAMPLE_BASE = "https://raw.githubusercontent.com/Muzzammil242/pgrecon/main/examples/dump_oracle21c/";
 const SAMPLE_FILES = [
@@ -164,153 +227,242 @@ const SAMPLE_FILES = [
   "tables.csv", "triggers.csv"
 ];
 
-function status(text) {
-  document.getElementById("status").textContent = text;
+const WORKER_SRC = String.raw`
+importScripts('https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js');
+let py = null;
+const PYSETUP = [
+  'from typer.testing import CliRunner',
+  'from pgrecon.cli import app',
+  '_runner = CliRunner()',
+  'def run_cmd(*args):',
+  '    result = _runner.invoke(app, list(args))',
+  '    out = result.output',
+  '    if result.exception is not None and not isinstance(result.exception, SystemExit):',
+  '        import traceback',
+  '        out += "".join(traceback.format_exception(result.exception))',
+  '    return out'
+].join('\n');
+function post(type, extra) { self.postMessage(Object.assign({ type: type }, extra || {})); }
+self.onmessage = async function (e) {
+  const m = e.data;
+  try {
+    if (m.cmd === 'boot') {
+      post('status', { text: 'downloading the Python runtime...' });
+      py = await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/' });
+      post('status', { text: 'loading sqlite and pip...' });
+      await py.loadPackage(['micropip', 'sqlite3']);
+      post('status', { text: 'pip install pgrecon==0.5.0 ...' });
+      const mp = py.pyimport('micropip');
+      await mp.install('pgrecon==0.5.0');
+      post('status', { text: 'importing pgrecon...' });
+      py.runPython(PYSETUP);
+      post('booted', { version: py.runPython("__import__('pgrecon').__version__") });
+    } else if (m.cmd === 'sample') {
+      py.FS.mkdirTree('/dump');
+      let done = 0;
+      await Promise.all(m.files.map(async function (name) {
+        const r = await fetch(m.base + name);
+        if (!r.ok) throw new Error('fetch failed: ' + name);
+        const buf = new Uint8Array(await r.arrayBuffer());
+        py.FS.writeFile('/dump/' + name, buf);
+        done += 1;
+        post('status', { text: 'fetching the sample dump... ' + done + '/' + m.files.length });
+      }));
+      post('fetched', {});
+    } else if (m.cmd === 'write') {
+      py.FS.mkdirTree('/userdump');
+      for (const f of m.files) py.FS.writeFile('/userdump/' + f.name, new Uint8Array(f.buf));
+      post('written', { count: m.files.length });
+    } else if (m.cmd === 'run') {
+      post('result', { id: m.id, output: py.globals.get('run_cmd')(...m.argv) });
+    } else if (m.cmd === 'read') {
+      post('file', { id: m.id, path: m.path, text: py.FS.readFile(m.path, { encoding: 'utf8' }) });
+    }
+  } catch (err) {
+    post('error', { id: m.id, message: String((err && err.message) || err) });
+  }
+};
+`;
+
+let worker = null;
+let booted = false;
+let nextId = 1;
+const handlers = {};
+let tickTimer = null;
+let tickStart = 0;
+let tickLabel = "";
+
+function status(text) { document.getElementById("status").textContent = text; }
+function busy(on) { document.getElementById("statusbar").classList.toggle("busy", on); }
+function startTick(label) {
+  tickStart = performance.now();
+  tickLabel = label;
+  busy(true);
+  status(label);
+  tickTimer = setInterval(function () {
+    status(tickLabel + " " + Math.round((performance.now() - tickStart) / 1000) + "s");
+  }, 1000);
+}
+function stopTick() {
+  if (tickTimer) clearInterval(tickTimer);
+  tickTimer = null;
+  busy(false);
+  return ((performance.now() - tickStart) / 1000).toFixed(1);
 }
 
-function termLine(text, cls) {
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function colorize(text) {
+  return esc(text).split("\n").map(function (line) {
+    line = line.replace(/\bR-[A-Z]{3,4}-\d{2}\b/g, '<span class="rid">$&</span>');
+    line = line.replace(/^(blocker|high|medium|low|info)(?=\s)/, function (w) {
+      return '<span class="sev-' + w + '">' + w + "</span>";
+    });
+    line = line.replace(/^(<span class="rid">.*?<\/span>\s+)(blocker|high|medium|low|info)(?=\s)/, function (_, pre, w) {
+      return pre + '<span class="sev-' + w + '">' + w + "</span>";
+    });
+    if (/^\d+ findings \(/.test(line) || /^\s+low \d+, expected \d+, high \d+/.test(line)) {
+      line = '<span class="sum">' + line + "</span>";
+    }
+    return line;
+  }).join("\n");
+}
+function termHTML(html) {
   const term = document.getElementById("term");
-  if (cls) {
-    const span = document.createElement("span");
-    span.className = cls;
-    span.textContent = text;
-    term.appendChild(span);
-  } else {
-    term.appendChild(document.createTextNode(text));
-  }
+  const span = document.createElement("span");
+  span.innerHTML = html;
+  term.appendChild(span);
   term.scrollTop = term.scrollHeight;
 }
-
-function prompt(argv) {
-  termLine("$ ", "d");
-  termLine("pgrecon " + argv.join(" ") + "\n", "k");
+function termOut(text) { termHTML(colorize(text)); }
+function termPrompt(argv) {
+  termHTML('<span class="d">$ </span><span class="c">' + esc("pgrecon " + argv.join(" ")) + "</span>\n");
 }
+function termSys(text) { termHTML('<span class="sys">' + esc(text) + "</span>\n"); }
 
 function enable(sel, on) {
-  document.querySelectorAll(sel).forEach(el => { el.disabled = !on; });
+  document.querySelectorAll(sel).forEach(function (el) { el.disabled = !on; });
 }
 
-async function boot() {
+function makeWorker() {
+  const blob = new Blob([WORKER_SRC], { type: "application/javascript" });
+  const w = new Worker(URL.createObjectURL(blob));
+  w.onmessage = function (e) {
+    const m = e.data;
+    if (m.type === "status") { if (!tickTimer) status(m.text); else tickLabel = m.text; }
+    else if (handlers[m.type]) handlers[m.type](m);
+  };
+  w.onerror = function (e) {
+    stopTick();
+    status("worker error: " + e.message);
+  };
+  return w;
+}
+
+function send(msg, onDone) {
+  msg.id = nextId++;
+  const wanted = msg.cmd === "run" ? "result" : msg.cmd === "read" ? "file"
+    : msg.cmd === "boot" ? "booted" : msg.cmd === "sample" ? "fetched" : "written";
+  handlers[wanted] = function (m) {
+    if (m.id !== undefined && m.id !== msg.id) return;
+    delete handlers[wanted];
+    onDone(m);
+  };
+  handlers.error = function (m) {
+    delete handlers[wanted];
+    delete handlers.error;
+    stopTick();
+    termSys("error: " + m.message);
+    status("error: " + m.message);
+  };
+  worker.postMessage(msg);
+}
+
+function boot() {
   if (booted) return;
-  const btn = document.getElementById("boot-btn");
-  btn.disabled = true;
-  try {
-    status("downloading the Python runtime...");
-    py = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/" });
-    status("loading sqlite and pip...");
-    await py.loadPackage(["micropip", "sqlite3"]);
-    status("pip install pgrecon==0.5.0 ...");
-    const micropip = py.pyimport("micropip");
-    await micropip.install("pgrecon==0.5.0");
-    status("importing pgrecon (first import compiles the parser tables)...");
-    await new Promise(r => setTimeout(r, 30));
-    py.runPython(`
-from typer.testing import CliRunner
-from pgrecon.cli import app
-from pgrecon import __version__
-_runner = CliRunner()
-
-def run_cmd(*args):
-    result = _runner.invoke(app, list(args))
-    out = result.output
-    if result.exception is not None and not isinstance(result.exception, SystemExit):
-        import traceback
-        out += "".join(traceback.format_exception(result.exception))
-    return out
-`);
-    const ver = py.runPython("__import__('pgrecon').__version__");
+  document.getElementById("boot-btn").disabled = true;
+  worker = makeWorker();
+  busy(true);
+  send({ cmd: "boot" }, function (m) {
     booted = true;
-    status("ready - pgrecon " + ver + " installed in this tab");
-    termLine("$ ", "d"); termLine("pip install pgrecon==" + ver + "\n", "k");
-    termLine("done: real package, from PyPI, running client-side\n\n");
-    enable("#sample-btn, #own", true);
+    busy(false);
+    status("ready - pgrecon " + m.version + " installed in this tab");
+    termHTML('<span class="d">$ </span><span class="c">' + esc("pip install pgrecon==" + m.version) + "</span>\n");
+    termOut("done: real package, from PyPI, running client-side\n\n");
+    enable("#sample-btn", true);
+    document.getElementById("own-label").classList.remove("off");
     document.getElementById("explain-btn").disabled = false;
-  } catch (err) {
-    status("boot failed: " + err);
-    btn.disabled = false;
-  }
-}
-
-async function fetchSample() {
-  py.FS.mkdirTree("/dump");
-  let done = 0;
-  await Promise.all(SAMPLE_FILES.map(async name => {
-    const resp = await fetch(SAMPLE_BASE + name);
-    if (!resp.ok) throw new Error("fetch failed: " + name);
-    const buf = new Uint8Array(await resp.arrayBuffer());
-    py.FS.writeFile("/dump/" + name, buf);
-    done += 1;
-    status("fetching the sample dump from the repository... " + done + "/" + SAMPLE_FILES.length);
-  }));
+  });
 }
 
 function runLoad(dir, label) {
-  status("deep-parsing PL/SQL - the tab may freeze for a minute or two; that is the full grammar working...");
-  const t0 = performance.now();
-  prompt(["load", label, "--db", "/inv.db"]);
-  setTimeout(() => {
-    try {
-      const out = py.globals.get("run_cmd")("load", dir, "--db", "/inv.db");
-      const secs = ((performance.now() - t0) / 1000).toFixed(1);
-      termLine(out + "\n");
-      status("loaded in " + secs + "s under WebAssembly (the installed CLI takes seconds)");
-      loaded = true;
-      enable("#cmds button", true);
-    } catch (err) {
-      termLine("load failed: " + err + "\n");
-      status("load failed");
-    }
-  }, 60);
+  termPrompt(["load", label, "--db", "/inv.db"]);
+  startTick("deep-parsing PL/SQL with the full grammar - a minute or two under WebAssembly...");
+  send({ cmd: "run", argv: ["load", dir, "--db", "/inv.db"] }, function (m) {
+    const secs = stopTick();
+    termOut(m.output + "\n");
+    status("loaded in " + secs + "s under WebAssembly - the installed CLI does this in seconds");
+    enable(".cmdbtn", true);
+    enable("#sample-btn", true);
+    document.getElementById("own-label").classList.remove("off");
+  });
 }
 
-async function loadSample() {
-  enable("#sample-btn, #own", false);
-  try {
-    await fetchSample();
-  } catch (err) {
-    status("could not fetch the sample dump: " + err);
-    enable("#sample-btn, #own", true);
-    return;
-  }
-  runLoad("/dump", "examples/dump_oracle21c");
+function loadSample() {
+  enable("#sample-btn", false);
+  document.getElementById("own-label").classList.add("off");
+  busy(true);
+  send({ cmd: "sample", base: SAMPLE_BASE, files: SAMPLE_FILES }, function () {
+    runLoad("/dump", "examples/dump_oracle21c");
+  });
 }
 
 function loadOwn(files) {
-  if (!files.length) return;
-  enable("#sample-btn, #own", false);
-  try { py.FS.mkdirTree("/userdump"); } catch (e) {}
-  let pending = files.length;
+  if (!files.length || !booted) return;
+  enable("#sample-btn", false);
+  document.getElementById("own-label").classList.add("off");
+  busy(true);
   status("reading " + files.length + " files into the tab...");
+  const jobs = [];
   for (const f of files) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      py.FS.writeFile("/userdump/" + f.name, new Uint8Array(reader.result));
-      pending -= 1;
-      if (pending === 0) runLoad("/userdump", "your-dump");
-    };
-    reader.readAsArrayBuffer(f);
+    jobs.push(f.arrayBuffer().then(function (buf) { return { name: f.name, buf: buf }; }));
   }
+  Promise.all(jobs).then(function (payload) {
+    send({ cmd: "write", files: payload }, function () {
+      runLoad("/userdump", "your-dump");
+    });
+  });
 }
 
 function cmd(argv) {
-  prompt(argv);
-  setTimeout(() => {
-    const out = py.globals.get("run_cmd")(...argv);
-    termLine(out + "\n");
-  }, 30);
+  termPrompt(argv);
+  startTick("running...");
+  send({ cmd: "run", argv: argv }, function (m) {
+    stopTick();
+    status("done");
+    termOut(m.output + "\n");
+  });
 }
 
 function convertCmd() {
   const argv = ["convert", "--db", "/inv.db", "--out", "/schema_pg.sql", "--residue", "/schema_residue.txt"];
-  prompt(argv);
-  setTimeout(() => {
-    const out = py.globals.get("run_cmd")(...argv);
-    termLine(out + "\n");
-    document.getElementById("ddl-out").textContent = py.FS.readFile("/schema_pg.sql", { encoding: "utf8" });
-    document.getElementById("residue-out").textContent = py.FS.readFile("/schema_residue.txt", { encoding: "utf8" });
-    document.getElementById("ddl-box").hidden = false;
-    document.getElementById("residue-box").hidden = false;
-  }, 30);
+  termPrompt(argv);
+  startTick("running...");
+  send({ cmd: "run", argv: argv }, function (m) {
+    stopTick();
+    status("done - the DDL and residue files are below the terminal");
+    termOut(m.output + "\n");
+    send({ cmd: "read", path: "/schema_pg.sql" }, function (f) {
+      document.getElementById("ddl-out").textContent = f.text;
+      document.getElementById("ddl-box").hidden = false;
+      send({ cmd: "read", path: "/schema_residue.txt" }, function (r) {
+        const pre = document.getElementById("residue-out");
+        pre.innerHTML = esc(r.text).split("\n").map(function (line) {
+          return line.replace(/^(view|table|column|trigger|routine|sequence|synonym|mview|index|constraint|grant|note|partition|db_link)(?=\s)/, '<span class="k">$&</span>');
+        }).join("\n");
+        document.getElementById("residue-box").hidden = false;
+      });
+    });
+  });
 }
 </script>
 
