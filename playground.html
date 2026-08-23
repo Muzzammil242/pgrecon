@@ -108,9 +108,9 @@ including any dump you open, stays in this tab. Close it and it is gone.</p>
 <p>Use the extraction dump from a live Oracle XE 21c that ships in the
 repository, or open one of your own - the folder of spool files the
 <code>pgrecon script</code> extraction produces. Loading deep-parses every
-stored PL/SQL unit with a full grammar; under WebAssembly that takes around
-a minute and the tab will feel frozen while it works. The installed CLI
-does the same in seconds.</p>
+stored PL/SQL unit with a full grammar; under WebAssembly that takes a
+minute or two and the tab will feel frozen while it works. The installed
+CLI does the same in seconds.</p>
 <button id="sample-btn" onclick="loadSample()" disabled>Load the bundled Oracle 21c dump</button>
 <span class="fine">or open your own:</span>
 <input type="file" id="own" multiple disabled onchange="loadOwn(this.files)">
@@ -245,7 +245,7 @@ async function fetchSample() {
 }
 
 function runLoad(dir, label) {
-  status("deep-parsing PL/SQL - the tab may freeze for a minute; that is the full grammar working...");
+  status("deep-parsing PL/SQL - the tab may freeze for a minute or two; that is the full grammar working...");
   const t0 = performance.now();
   prompt(["load", label, "--db", "/inv.db"]);
   setTimeout(() => {
