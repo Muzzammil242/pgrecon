@@ -1,0 +1,10 @@
+{
+    "name": "pgrecon",
+    "image": "mcr.microsoft.com/devcontainers/python:3.12",
+    "postCreateCommand": "pip install -e .",
+    "customizations": {
+        "codespaces": {
+            "openFiles": ["README.md"]
+        }
+    }
+}
