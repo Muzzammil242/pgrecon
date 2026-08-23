@@ -17,9 +17,12 @@
     font-size: 16px;
     line-height: 1.6;
   }
-  h1 { font-size: 1.7em; margin: 0 0 .1em; }
-  h1 small { font-size: .55em; font-weight: normal; color: #555; }
-  h2 { font-size: 1.2em; margin: 2.2em 0 .4em; border-bottom: 1px solid #ddd; padding-bottom: .2em; }
+  .masthead { border-left: 4px solid #336791; padding-left: .8em; margin-bottom: 1.2em; }
+  h1 { font-size: 2em; margin: 0 0 .05em; }
+  h1 small { font-size: .5em; font-weight: normal; color: #555; }
+  .ver { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+         font-size: .55em; color: #336791; font-weight: normal; margin-left: .4em; }
+  h2 { font-size: 1.2em; margin: 2.2em 0 .4em; border-bottom: 2px solid #336791; padding-bottom: .2em; }
   h3 { font-size: 1em; margin: 1.4em 0 .3em; }
   p { margin: .6em 0; }
   a { color: #336791; }
@@ -41,28 +44,47 @@
   th { background: #f2f2f0; }
   td.n { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .zero { color: #116329; font-weight: bold; }
+  tr.us td { background: rgba(17, 99, 41, 0.07); }
   .tablewrap { overflow-x: auto; }
+  pre .k { color: #336791; font-weight: bold; }
+  pre .d { color: #888; user-select: none; }
   ul { margin: .4em 0 .8em; padding-left: 1.4em; }
   li { margin: .25em 0; }
   .fine { color: #555; font-size: 14px; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4em; margin-top: .8em; }
+  .half { border: 1px solid #ccc; border-top: 3px solid #336791; padding: .2em 1.1em .8em; }
+  .half.paid { border-top-color: #116329; }
+  .tag { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+         font-size: 12px; letter-spacing: .05em; color: #336791; }
+  .half.paid .tag { color: #116329; }
+  @media (max-width: 640px) { .split { grid-template-columns: 1fr; } }
   footer { margin-top: 3em; border-top: 1px solid #ddd; padding-top: 1em; color: #555; font-size: 14px; }
   @media (prefers-color-scheme: dark) {
     body { background: #191919; color: #d6d6d6; }
     a { color: #7cb3d9; }
-    h2, footer, pre, th, td { border-color: #3a3a3a; }
+    footer, pre, th, td, .half { border-color: #3a3a3a; }
+    h2 { border-color: #4e82ab; }
+    .masthead { border-left-color: #4e82ab; }
+    .half { border-top-color: #4e82ab; }
+    .half.paid { border-top-color: #3a9152; }
     pre, code { background: #222; }
     th { background: #222; }
     .top, .fine, footer, h1 small { color: #999; }
     .zero { color: #4cbb62; }
+    tr.us td { background: rgba(76, 187, 98, 0.08); }
+    .ver, .tag, pre .k { color: #7cb3d9; }
+    .half.paid .tag { color: #4cbb62; }
   }
 </style>
 </head>
 <body>
 
-<h1>pgrecon <small>Oracle to PostgreSQL migration reconnaissance</small></h1>
+<div class="masthead">
+<h1>pgrecon<span class="ver">v0.5.0</span><br><small>Oracle to PostgreSQL migration reconnaissance</small></h1>
 <p class="top">Assess an Oracle estate and convert its schema from an offline dump.
 The tool never connects to your database.</p>
-<pre>$ pip install pgrecon</pre>
+</div>
+<pre><span class="d">$ </span>pip install pgrecon</pre>
 <p class="nav">
   <a href="https://github.com/Muzzammil242/pgrecon">GitHub</a>
   <a href="https://pypi.org/project/pgrecon/">PyPI</a>
@@ -91,10 +113,10 @@ cutover checklist.</p>
 <p>The converter never emits DDL PostgreSQL would reject, and never drops an
 object silently. Everything it declines becomes one line in a residue
 report: the object, the reason. From a real run:</p>
-<pre>view         CO.PRODUCT_REVIEWS: uses JSON_TABLE, which PostgreSQL adds in version 17 with different clause syntax; rewrite the view by hand
-trigger      RECON_TEST.TRG_EMP_AUDIT: runs an autonomous transaction; redesign with dblink or a queue (line 5)
-trigger      RECON_TEST.TRG_EMP_SAL_GUARD: compound triggers combine timing points; restructure as separate triggers by hand
-column       RECON_TEST.LEGACY_REFS.SCAN_DOC: external file locators have no counterpart</pre>
+<pre><span class="k">view</span>         CO.PRODUCT_REVIEWS: uses JSON_TABLE, which PostgreSQL adds in version 17 with different clause syntax; rewrite the view by hand
+<span class="k">trigger</span>      RECON_TEST.TRG_EMP_AUDIT: runs an autonomous transaction; redesign with dblink or a queue (line 5)
+<span class="k">trigger</span>      RECON_TEST.TRG_EMP_SAL_GUARD: compound triggers combine timing points; restructure as separate triggers by hand
+<span class="k">column</span>       RECON_TEST.LEGACY_REFS.SCAN_DOC: external file locators have no counterpart</pre>
 <p>The residue report is the complete work list a migration plan is priced
 from, produced before anyone touches production.</p>
 
@@ -106,7 +128,7 @@ statements PostgreSQL rejected. August 2026.</p>
 <div class="tablewrap">
 <table>
   <tr><th>Converter</th><th>Apply errors</th><th>Notes</th></tr>
-  <tr><td><strong>pgrecon 0.4</strong></td><td class="n zero">0</td>
+  <tr class="us"><td><strong>pgrecon 0.4</strong></td><td class="n zero">0</td>
       <td>454 of 889 objects emitted; every decline a named residue line</td></tr>
   <tr><td>Ora2Pg v25</td><td class="n">77</td>
       <td>needed two accommodations to apply at all</td></tr>
@@ -137,23 +159,31 @@ pgrecon estimate --db sample.db
 pgrecon convert --db sample.db</pre>
 
 <h2 id="commercial">Free engine, commercial engagement</h2>
-<h3>Free, Apache-2.0</h3>
-<ul>
-  <li>Offline extraction script and SQLite inventory</li>
-  <li>74 compatibility rules with remedies; text and JSON output</li>
-  <li>Effort estimate in person-days, assumptions stated</li>
-  <li>Schema conversion with the residue report; data-movement runbook</li>
-</ul>
-<h3>Commercial</h3>
-<ul>
-  <li>Fixed-price assessment: a board-ready report with grade, hotspots, and
-      license exposure computed from the database's own usage statistics</li>
-  <li>Package flattening: PL/SQL packages become PostgreSQL schemas with
-      their state preserved and call sites rewritten</li>
-  <li>Migration delivery: schema, code, data, validation, cutover</li>
-</ul>
-<p><a href="https://devcrafterai.com/contact/">Book a fixed-price assessment</a>
-or write to the address in the repository.</p>
+<div class="split">
+  <div class="half">
+    <h3><span class="tag">APACHE-2.0</span><br>The engine</h3>
+    <ul>
+      <li>Offline extraction script and SQLite inventory</li>
+      <li>74 compatibility rules with remedies; text and JSON output</li>
+      <li>Effort estimate in person-days, assumptions stated</li>
+      <li>Schema conversion with the residue report; data-movement runbook</li>
+    </ul>
+    <p><a href="https://github.com/Muzzammil242/pgrecon">Source on GitHub</a></p>
+  </div>
+  <div class="half paid">
+    <h3><span class="tag">COMMERCIAL</span><br>The engagement</h3>
+    <ul>
+      <li>Fixed-price assessment: a board-ready report with grade, hotspots,
+          and license exposure computed from the database's own usage
+          statistics</li>
+      <li>Package flattening: PL/SQL packages become PostgreSQL schemas with
+          their state preserved and call sites rewritten</li>
+      <li>Migration delivery: schema, code, data, validation, cutover</li>
+    </ul>
+    <p><a href="https://devcrafterai.com/contact/">Book a fixed-price
+       assessment</a></p>
+  </div>
+</div>
 
 <footer>
 pgrecon is Apache-2.0, built in the open by
