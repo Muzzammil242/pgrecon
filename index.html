@@ -151,6 +151,19 @@ additionally verified row-for-row against a live Oracle database running the
 original. Methodology and per-tool accommodations are documented in the
 repository.</p>
 
+<h2>Still on Oracle 9i or 10g?</h2>
+<p>The enterprises that most need to leave Oracle are often the ones
+running versions nobody dares touch. pgrecon ships a second extraction
+script for Oracle 9.2 through 11.1: it runs on the ancient SQL*Plus
+already on the host, reconstructs DDL from the catalog where
+DBMS_METADATA falls short, respects pre-10.2 output limits, and
+degrades cleanly where old servers lack a view - a 9.2 dump simply
+carries fewer files, never an error. The rest of the pipeline is
+identical, and the assessment it produces is the same document:
+<a href="pgrecon-sample-assessment-legacy-tier.pdf">sample report from
+the legacy extraction tier (PDF)</a> - generated from the same lab
+estate through the legacy script, end to end.</p>
+
 <h2>Try it without an Oracle instance</h2>
 <p>A real extraction dump from Oracle XE 21c ships in the repository:</p>
 <pre>pip install pgrecon
