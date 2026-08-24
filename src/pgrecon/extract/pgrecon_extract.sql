@@ -278,7 +278,7 @@ SPOOL OFF
 -- Who can do what to the schema's objects; a migration that forgets
 -- privileges ends with a working database nobody can use.
 SPOOL grants.csv
-SELECT grantee, owner, table_name, privilege, grantable
+SELECT grantee, table_schema AS owner, table_name, privilege, grantable
   FROM all_tab_privs
  WHERE table_schema = UPPER('&schema')
  ORDER BY table_name, grantee, privilege;
