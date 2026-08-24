@@ -18,6 +18,7 @@ from pgrecon.convert.code import (
     _unit_text,
 )
 from pgrecon.convert.identifiers import _fold_condition
+from pgrecon.convert.namespace import ROUTINES, NameRegistry
 from pgrecon.convert.plsql_rewrite import (
     _apply,
     _first_descendant,
@@ -141,6 +142,7 @@ def _emit_triggers(
     owners: set[str],
     callables: set[str],
     packages: set[str],
+    names: NameRegistry,
 ) -> int:
     count = 0
     rows = conn.execute(
@@ -339,6 +341,16 @@ def _emit_triggers(
                 f"    RETURN {fallthrough};\n  END IF;",
                 1,
             )
+        # The generated function name lands in pg_proc, the trigger
+        # name in its table's trigger namespace; a collision on the
+        # function would let CREATE OR REPLACE silently replace an
+        # earlier one.
+        if not names.claim(fn_name, "trigger function", owner, residue, scope=ROUTINES):
+            continue
+        if not names.claim(
+            name, "trigger", owner, residue, scope=f"trigger:{table.upper()}"
+        ):
+            continue
         out.append(fn_sql)
         out.append("")
         level = "FOR EACH ROW" if row_level else "FOR EACH STATEMENT"

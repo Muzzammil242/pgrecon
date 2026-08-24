@@ -8,9 +8,9 @@ from pgrecon.convert.identifiers import (
     _fold_expression,
     ident,
     over_limit,
-    pg_truncate,
     truncation_clash,
 )
+from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.partitions import _emit_partition_children, _partition_meta
 from pgrecon.convert.residue import Residue
 from pgrecon.convert.typemap import map_type
@@ -35,6 +35,7 @@ def emit_tables(
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
     dropped: dict[tuple[str, str], set[str]],
+    names: NameRegistry,
     skip_mviews: set[str] | None = None,
 ) -> tuple[int, int]:
     """Emit every table; returns (table_count, partition_count).
@@ -87,28 +88,12 @@ def emit_tables(
         "SELECT owner, table_name, temporary FROM tables ORDER BY owner, table_name"
     ).fetchall()
 
-    # Names PostgreSQL will store for the tables emitted so far; a
-    # later table folding onto one of them would fail its CREATE.
-    claimed: dict[str, str] = {}
-
     for t in tables:
         owner, table = t["owner"], t["table_name"]
         if skip_mviews and (table or "").upper() in skip_mviews:
             continue
-        key = pg_truncate((table or "").lower())
-        prior = claimed.get(key)
-        if prior is not None:
-            residue.append(
-                Residue(
-                    owner,
-                    table,
-                    "table",
-                    f"name collides with table {prior} within PostgreSQL's"
-                    " 63-byte identifier limit; rename before migration",
-                )
-            )
+        if not names.claim(table or "", "table", owner, residue):
             continue
-        claimed[key] = table
         cols = _columns(conn, owner, table)
         if not cols:
             residue.append(
@@ -128,16 +113,6 @@ def emit_tables(
                 )
             )
             continue
-        if over_limit(table or ""):
-            residue.append(
-                Residue(
-                    owner,
-                    table,
-                    "note",
-                    "name exceeds PostgreSQL's 63-byte identifier limit"
-                    " and will be truncated on apply",
-                )
-            )
         extras = {
             (r["column_name"] or "").upper(): r
             for r in conn.execute(
@@ -301,7 +276,7 @@ def emit_tables(
         emitted[(owner, table)] = kept_columns
         if meta is not None:
             partition_count += _emit_partition_children(
-                conn, owner, table, meta, out, residue
+                conn, owner, table, meta, out, residue, names
             )
 
     return table_count, partition_count

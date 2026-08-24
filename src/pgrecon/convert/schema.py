@@ -27,6 +27,7 @@ from pgrecon.convert.extras import (
 from pgrecon.convert.identifiers import ident as ident
 from pgrecon.convert.indexes import _emit_indexes
 from pgrecon.convert.mviews import _emit_mviews, mview_queries
+from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue as Residue
 from pgrecon.convert.tables import emit_tables
 from pgrecon.convert.triggers import _emit_triggers
@@ -76,29 +77,45 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
     emitted: dict[tuple[str, str], set[str]] = {}
     dropped: dict[tuple[str, str], set[str]] = {}
 
+    # One name map for everything PostgreSQL folds together: pg_class
+    # holds tables, views, materialized views, sequences, indexes,
+    # and key-backing indexes in a single per-schema namespace, and
+    # every identifier truncates to 63 bytes. Emission order decides
+    # who wins a name; every later collider becomes residue.
+    names = NameRegistry()
+
     # Sequences first: column defaults may call nextval on them, and
     # PostgreSQL resolves that at CREATE TABLE time.
-    sequence_count, sequence_names = _emit_sequences(conn, out, residue)
+    sequence_count, sequence_names = _emit_sequences(conn, out, residue, names)
 
     # Materialized-view containers with a captured defining query
     # convert as real materialized views right after their base
     # tables; constraints and triggers must decline them by name.
     mv_names = {name for (_, name) in mview_queries(conn)}
     table_count, partition_count = emit_tables(
-        conn, out, residue, emitted, dropped, mv_names
+        conn, out, residue, emitted, dropped, names, mv_names
     )
-    mview_count = _emit_mviews(conn, out, residue, emitted, dropped, set())
+    mview_count = _emit_mviews(conn, out, residue, emitted, dropped, set(), names)
 
-    constraint_count += _emit_keys(conn, out, residue, emitted, mv_names)
-    constraint_count += _emit_checks(conn, out, residue, emitted, dropped, mv_names)
-    constraint_count += _emit_foreign_keys(conn, out, residue, emitted, mv_names)
-    index_count = _emit_indexes(conn, out, residue, emitted)
-    view_count, created_views = _emit_views(conn, out, residue, emitted, dropped)
+    constraint_count += _emit_keys(conn, out, residue, emitted, names, mv_names)
+    constraint_count += _emit_checks(
+        conn, out, residue, emitted, dropped, names, mv_names
+    )
+    constraint_count += _emit_foreign_keys(conn, out, residue, emitted, names, mv_names)
+    index_count = _emit_indexes(conn, out, residue, emitted, names)
+    view_count, created_views = _emit_views(conn, out, residue, emitted, dropped, names)
     synonym_count, synonym_names = _emit_synonyms(
-        conn, out, residue, emitted, created_views
+        conn, out, residue, emitted, created_views, names
     )
     routine_count = _emit_code(
-        conn, out, residue, emitted, created_views, sequence_names, synonym_names
+        conn,
+        out,
+        residue,
+        emitted,
+        created_views,
+        sequence_names,
+        synonym_names,
+        names,
     )
     trigger_count = _emit_triggers(
         conn,
@@ -126,6 +143,7 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
             (r["name"] or "").upper()
             for r in conn.execute("SELECT name FROM objects WHERE type = 'PACKAGE'")
         },
+        names,
     )
     link_count = _emit_db_links(conn, out, residue)
 

@@ -4,6 +4,7 @@ import re
 import sqlite3
 
 from pgrecon.convert.identifiers import ident
+from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
 
 _INTEGERISH = re.compile(r"^-?\d+$")
@@ -11,7 +12,10 @@ _PG_BIGINT_MAX = 9223372036854775807
 
 
 def _emit_sequences(
-    conn: sqlite3.Connection, out: list[str], residue: list[Residue]
+    conn: sqlite3.Connection,
+    out: list[str],
+    residue: list[Residue],
+    names: NameRegistry,
 ) -> tuple[int, set[str]]:
     """Sequences restarted at their extracted position.
 
@@ -68,6 +72,8 @@ def _emit_sequences(
             parts.append(f"CACHE {cache}")
         if (r["cycle_flag"] or "N") == "Y":
             parts.append("CYCLE")
+        if not names.claim(r["sequence_name"] or "", "sequence", r["owner"], residue):
+            continue
         out.append(" ".join(parts) + ";")
         created.add((r["sequence_name"] or "").upper())
         count += 1
@@ -82,6 +88,7 @@ def _emit_synonyms(
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
     created_views: set[str],
+    names: NameRegistry,
 ) -> tuple[int, set[str]]:
     """Schema-local synonyms over converted relations become views.
 
@@ -130,6 +137,10 @@ def _emit_synonyms(
                     f"its target {target} is not in the converted set",
                 )
             )
+            continue
+        # CREATE OR REPLACE would silently replace a colliding earlier
+        # object, so the namespace check matters doubly here.
+        if not names.claim(r["synonym_name"] or "", "synonym", r["owner"], residue):
             continue
         out.append(
             f"CREATE OR REPLACE VIEW {ident(r['synonym_name'])}"

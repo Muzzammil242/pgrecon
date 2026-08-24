@@ -9,6 +9,7 @@ line, so the residue report reads as a work list, not an apology.
 
 import sqlite3
 
+from pgrecon.convert.namespace import ROUTINES, NameRegistry
 from pgrecon.convert.plsql_rewrite import rewrite_unit
 from pgrecon.convert.residue import Residue
 
@@ -283,6 +284,7 @@ def _emit_code(
     created_views: set[str],
     sequences: set[str],
     synonyms: set[str],
+    names: NameRegistry,
 ) -> int:
     """Functions and procedures through the mechanical rewriter.
 
@@ -436,6 +438,12 @@ def _emit_code(
     count = 0
     for key in ordered:
         owner, name, sql, notes = accepted[key]
+        _, kind = kinds.get(key, (owner, "function"))
+        # Routines have their own namespace (pg_proc); a truncation
+        # collision there would make CREATE OR REPLACE silently
+        # replace the earlier routine.
+        if not names.claim(name, kind, owner, residue, scope=ROUTINES):
+            continue
         out.append(sql)
         out.append("")
         for note in dict.fromkeys(notes):

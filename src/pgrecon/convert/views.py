@@ -9,6 +9,7 @@ from sqlglot.errors import ErrorLevel, SqlglotError
 from sqlglot.transforms import eliminate_join_marks
 
 from pgrecon.convert.identifiers import _fold_identifiers, ident
+from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
 from pgrecon.inventory.loader import PARSE_NORMALIZATIONS
 
@@ -211,6 +212,7 @@ def _emit_views(
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
     dropped: dict[tuple[str, str], set[str]],
+    registry: NameRegistry,
 ) -> tuple[int, set[str]]:
     """Views via transpile of the stored DDL, in dependency order."""
     rows = conn.execute(
@@ -311,6 +313,8 @@ def _emit_views(
                 if guard is not None:
                     residue.append(Residue(r["owner"], name, "view", guard))
                     continue
+                if not registry.claim(name, "view", r["owner"], residue):
+                    continue
                 out.append(f"CREATE VIEW {ident(name.lower())} AS\n{built};")
                 out.append("")
                 created_views.add(name.upper())
@@ -338,6 +342,8 @@ def _emit_views(
         guard = _view_guard(tree, name, emitted, dropped, created_views)
         if guard is not None:
             residue.append(Residue(r["owner"], name, "view", guard))
+            continue
+        if not registry.claim(name, "view", r["owner"], residue):
             continue
         out.append(statement + ";")
         out.append("")

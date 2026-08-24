@@ -211,7 +211,7 @@ def test_relation_namespace_collisions_rename_with_note(facts_db: Path) -> None:
     result = convert_schema(facts_db)
     assert "ADD CONSTRAINT emp_uk UNIQUE (name);" in result.sql
     assert "CREATE INDEX dept_ix ON emp (ename);" in result.sql
-    shared = [r for r in result.residue if "shares its name with a table" in r.reason]
+    shared = [r for r in result.residue if "shares its name with table" in r.reason]
     assert len(shared) == 2
 
 
@@ -958,3 +958,83 @@ def test_names_past_the_identifier_limit(tmp_path: Path) -> None:
     clash = [r for r in result.residue if r.object_name == tab_b and r.kind == "table"]
     assert clash and tab_a in clash[0].reason
     assert result.tables == 2
+
+
+def test_shared_relation_namespace_across_kinds(tmp_path: Path) -> None:
+    prefix = "customer_account_reconciliation_adjustment_reference_number"
+    ix_a = (prefix + "_ix_alpha").upper()
+    ix_b = (prefix + "_ix_beta").upper()
+    vw = (prefix + "_history_view").upper()
+    tb = (prefix + "_history_table").upper()
+    seq = (prefix + "_journal_seq").upper()
+    tb2 = (prefix + "_journal_tab").upper()
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.executescript(
+        f"""
+        INSERT INTO tables (owner, table_name, temporary) VALUES
+          ('APP', 'PLAIN', 'N'), ('APP', '{tb}', 'N'), ('APP', '{tb2}', 'N');
+        INSERT INTO columns (owner, table_name, column_name, position,
+          data_type, data_length, data_precision, data_scale, nullable) VALUES
+          ('APP', 'PLAIN', 'ID', 1, 'NUMBER', 22, 10, 0, 'N'),
+          ('APP', 'PLAIN', 'NAME', 2, 'VARCHAR2', 50, NULL, NULL, 'Y'),
+          ('APP', '{tb}', 'ID', 1, 'NUMBER', 22, 10, 0, 'N'),
+          ('APP', '{tb2}', 'ID', 1, 'NUMBER', 22, 10, 0, 'N');
+        INSERT INTO sequences (owner, sequence_name, min_value, max_value,
+          increment_by, cycle_flag, cache_size, last_number) VALUES
+          ('APP', '{seq}', '1', '', '1', 'N', '20', '55');
+        INSERT INTO indexes (owner, index_name, table_name, index_type,
+          uniqueness, generated) VALUES
+          ('APP', '{ix_a}', 'PLAIN', 'NORMAL', 'NONUNIQUE', 'N'),
+          ('APP', '{ix_b}', 'PLAIN', 'NORMAL', 'NONUNIQUE', 'N');
+        INSERT INTO index_columns (owner, index_name, column_name, position)
+          VALUES ('APP', '{ix_a}', 'ID', 1), ('APP', '{ix_b}', 'NAME', 1);
+        INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality) VALUES
+          ('APP', '{vw}', 'VIEW',
+           'CREATE OR REPLACE VIEW "APP"."{vw}" ("ID") AS'
+           || ' SELECT "ID" FROM "APP"."PLAIN"', 1, 'full');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(db)
+    sql = result.sql
+    # Two indexes folding to one name: the first emits, the second is
+    # residue naming the first - never a false all-clear.
+    assert sql.count("CREATE INDEX customer_account") == 1
+    ix_refusals = [r for r in result.residue if r.object_name == ix_b]
+    assert ix_refusals and ix_a in ix_refusals[0].reason
+    # A view folding onto an emitted table refuses cross-kind: both
+    # live in pg_class, whatever Oracle kept apart.
+    assert "CREATE OR REPLACE VIEW" not in sql
+    vw_refusals = [r for r in result.residue if r.object_name == vw]
+    assert vw_refusals and tb in vw_refusals[0].reason
+    assert vw_refusals[0].kind == "view"
+    # Sequences emit before tables, so the sequence wins its name and
+    # the folding table refuses naming the sequence.
+    assert f"CREATE SEQUENCE {seq.lower()}"[:60] in sql
+    tb2_refusals = [
+        r for r in result.residue if r.object_name == tb2 and r.kind == "table"
+    ]
+    assert tb2_refusals and seq in tb2_refusals[0].reason
+    assert "sequence" in tb2_refusals[0].reason
+
+
+def test_registry_scopes_are_independent() -> None:
+    from pgrecon.convert.namespace import RELATIONS, ROUTINES, NameRegistry
+    from pgrecon.convert.residue import Residue
+
+    residue: list[Residue] = []
+    registry = NameRegistry()
+    assert registry.claim("LEDGER", "table", "APP", residue)
+    # The same name in the routine namespace is a different object on
+    # PostgreSQL and claims cleanly.
+    assert registry.claim("LEDGER", "function", "APP", residue, scope=ROUTINES)
+    # Same-name collision in one scope names both namespaces' owner.
+    assert not registry.claim("LEDGER", "index", "APP", residue)
+    assert residue and "separate namespaces" in residue[-1].reason
+    assert registry.peek("LEDGER", RELATIONS) == ("LEDGER", "table")
+    # Per-table scopes see only their own table.
+    assert registry.claim("CK", "check", "APP", residue, scope="constraint:T1")
+    assert registry.claim("CK", "check", "APP", residue, scope="constraint:T2")
+    assert not registry.claim("CK", "check", "APP", residue, scope="constraint:T1")

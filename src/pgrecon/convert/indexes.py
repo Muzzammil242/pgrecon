@@ -2,7 +2,13 @@
 
 import sqlite3
 
-from pgrecon.convert.identifiers import _default_guard, _fold_expression, ident
+from pgrecon.convert.identifiers import (
+    _default_guard,
+    _fold_expression,
+    ident,
+    over_limit,
+)
+from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
 
 
@@ -11,6 +17,7 @@ def _emit_indexes(
     out: list[str],
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
+    names: NameRegistry,
 ) -> int:
     """Secondary indexes; constraint-backed and generated ones are the
     constraints' business and never emitted twice."""
@@ -136,20 +143,32 @@ def _emit_indexes(
                 )
             )
         unique = "UNIQUE " if (r["uniqueness"] or "").upper() == "UNIQUE" else ""
-        name = ident(r["index_name"])
+        raw_name = r["index_name"] or ""
         # Oracle indexes live in their own namespace; PostgreSQL puts
-        # them beside tables, so an index named after a table needs a
-        # different name.
-        if (r["index_name"] or "").upper() in {t for (_, t) in emitted}:
-            name = ident(r["index_name"] + "_IX")
+        # them beside tables, views, and sequences, so a colliding
+        # index takes a suffixed name - nothing references an index by
+        # name, which makes the rename safe. A collision caused by
+        # 63-byte truncation cannot be suffixed away and refuses.
+        holder = names.peek(raw_name)
+        if holder is None:
+            names.claim(raw_name, "index", r["owner"], residue)
+            name = ident(raw_name)
+        elif over_limit(raw_name):
+            names.claim(raw_name, "index", r["owner"], residue)
+            continue
+        else:
+            renamed = raw_name + "_IX"
+            if not names.claim(renamed, "index", r["owner"], residue):
+                continue
+            name = ident(renamed)
             residue.append(
                 Residue(
                     r["owner"],
-                    r["index_name"],
+                    raw_name,
                     "note",
-                    f"shares its name with a table; created as {name}"
-                    " because PostgreSQL keeps indexes in the relation"
-                    " namespace",
+                    f"shares its name with {holder[1]} {holder[0]};"
+                    f" created as {name} because PostgreSQL keeps indexes"
+                    " in the relation namespace",
                 )
             )
         out.append(

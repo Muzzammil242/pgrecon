@@ -15,6 +15,7 @@ from sqlglot.errors import ErrorLevel, SqlglotError
 from sqlglot.transforms import eliminate_join_marks
 
 from pgrecon.convert.identifiers import _fold_identifiers, ident
+from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
 from pgrecon.convert.views import _view_guard
 from pgrecon.inventory.loader import PARSE_NORMALIZATIONS
@@ -43,6 +44,7 @@ def _emit_mviews(
     emitted: dict[tuple[str, str], set[str]],
     dropped: dict[tuple[str, str], set[str]],
     created_views: set[str],
+    names: NameRegistry,
 ) -> int:
     """CREATE MATERIALIZED VIEW for every captured query that proves
     convertible; a named residue line for every one that does not."""
@@ -104,6 +106,8 @@ def _emit_mviews(
         guard = _view_guard(tree, name, emitted, dropped, created_views)
         if guard is not None:
             residue.append(Residue(owner, name, "materialized view", guard))
+            continue
+        if not names.claim(name, "materialized view", owner, residue):
             continue
         # The container's column names come first: Oracle derived them
         # from the query once, and indexes converted from the container

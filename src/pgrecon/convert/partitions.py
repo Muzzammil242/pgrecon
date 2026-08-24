@@ -5,6 +5,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from pgrecon.convert.identifiers import ident
+from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
 
 
@@ -114,6 +115,7 @@ def _emit_partition_children(
     meta: _PartMeta,
     out: list[str],
     residue: list[Residue],
+    names: NameRegistry,
 ) -> int:
     parts = conn.execute(
         "SELECT partition_name, position, high_value, truncated"
@@ -148,6 +150,20 @@ def _emit_partition_children(
                 )
             )
             return 0
+        holder = names.peek(child)
+        if holder is not None:
+            residue.append(
+                Residue(
+                    owner,
+                    table,
+                    "partitioning",
+                    f"child name {child} collides with {holder[1]}"
+                    f" {holder[0]} in PostgreSQL's relation namespace;"
+                    " children omitted, name them by hand",
+                )
+            )
+            return 0
+        names.claim(child, "partition child", owner, residue)
         spec, prev = _child_spec(
             meta.ptype,
             p["high_value"],
@@ -204,6 +220,21 @@ def _emit_partition_children(
                         )
                     )
                     return 0
+                sub_holder = names.peek(sub_child)
+                if sub_holder is not None:
+                    residue.append(
+                        Residue(
+                            owner,
+                            table,
+                            "partitioning",
+                            f"child name {sub_child} collides with"
+                            f" {sub_holder[1]} {sub_holder[0]} in"
+                            " PostgreSQL's relation namespace; children"
+                            " omitted, name them by hand",
+                        )
+                    )
+                    return 0
+                names.claim(sub_child, "partition child", owner, residue)
                 sub_spec, sub_prev = _child_spec(
                     meta.subtype,
                     s["high_value"],

@@ -3,7 +3,13 @@
 import re
 import sqlite3
 
-from pgrecon.convert.identifiers import _fold_condition, _referenced_columns, ident
+from pgrecon.convert.identifiers import (
+    _fold_condition,
+    _referenced_columns,
+    ident,
+    over_limit,
+)
+from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
 
 _NOT_NULL_CONDITION = re.compile(
@@ -73,6 +79,7 @@ def _emit_keys(
     out: list[str],
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
+    names: NameRegistry,
     matviews: set[str] | None = None,
 ) -> int:
     count = 0
@@ -110,24 +117,44 @@ def _emit_keys(
             continue
         kind = "PRIMARY KEY" if r["type"] == "P" else "UNIQUE"
         cols = ", ".join(ident(c) for c in raw)
-        name = ident(r["constraint_name"])
+        raw_name = r["constraint_name"] or ""
         # Oracle keeps constraints in their own namespace; PostgreSQL
         # backs PRIMARY KEY and UNIQUE with an index that shares the
-        # relation namespace, so a constraint named after a table
-        # collides with it.
-        if (r["constraint_name"] or "").upper() in {t for (_, t) in emitted}:
-            suffix = "_pk" if r["type"] == "P" else "_uk"
-            name = ident(r["constraint_name"] + suffix.upper())
+        # relation namespace, so a colliding constraint takes a
+        # suffixed name. A collision caused by 63-byte truncation
+        # cannot be suffixed away and refuses.
+        holder = names.peek(raw_name)
+        if holder is None:
+            names.claim(raw_name, "constraint", r["owner"], residue)
+            claimed_name = raw_name
+        elif over_limit(raw_name):
+            names.claim(raw_name, "constraint", r["owner"], residue)
+            continue
+        else:
+            suffix = "_PK" if r["type"] == "P" else "_UK"
+            claimed_name = raw_name + suffix
+            if not names.claim(claimed_name, "constraint", r["owner"], residue):
+                continue
             residue.append(
                 Residue(
                     r["owner"],
-                    r["constraint_name"],
+                    raw_name,
                     "note",
-                    f"shares its name with a table; created as"
-                    f" {name} because PostgreSQL backs the constraint"
-                    " with an index in the relation namespace",
+                    f"shares its name with {holder[1]} {holder[0]};"
+                    f" created as {ident(claimed_name)} because PostgreSQL"
+                    " backs the constraint with an index in the relation"
+                    " namespace",
                 )
             )
+        name = ident(claimed_name)
+        names.claim(
+            claimed_name,
+            "constraint",
+            r["owner"],
+            residue,
+            scope=f"constraint:{(r['table_name'] or '').upper()}",
+            note=False,
+        )
         out.append(
             f"ALTER TABLE {ident(r['table_name'])} ADD CONSTRAINT"
             f" {name} {kind} ({cols});"
@@ -144,6 +171,7 @@ def _emit_checks(
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
     dropped: dict[tuple[str, str], set[str]],
+    names: NameRegistry,
     matviews: set[str] | None = None,
 ) -> int:
     count = 0
@@ -221,6 +249,14 @@ def _emit_checks(
                 )
             )
             continue
+        if not names.claim(
+            r["constraint_name"] or "",
+            "check",
+            r["owner"],
+            residue,
+            scope=f"constraint:{(r['table_name'] or '').upper()}",
+        ):
+            continue
         out.append(
             f"ALTER TABLE {ident(r['table_name'])} ADD CONSTRAINT"
             f" {ident(r['constraint_name'])} CHECK ({folded});"
@@ -237,6 +273,7 @@ def _emit_foreign_keys(
     out: list[str],
     residue: list[Residue],
     emitted: dict[tuple[str, str], set[str]],
+    names: NameRegistry,
     matviews: set[str] | None = None,
 ) -> int:
     count = 0
@@ -306,6 +343,14 @@ def _emit_foreign_keys(
             action = " ON DELETE SET NULL"
         cols = ", ".join(ident(c) for c in raw)
         ref_cols = ", ".join(ident(c) for c in ref_raw)
+        if not names.claim(
+            r["constraint_name"] or "",
+            "foreign key",
+            r["owner"],
+            residue,
+            scope=f"constraint:{(r['table_name'] or '').upper()}",
+        ):
+            continue
         out.append(
             f"ALTER TABLE {ident(r['table_name'])} ADD CONSTRAINT"
             f" {ident(r['constraint_name'])} FOREIGN KEY ({cols})"

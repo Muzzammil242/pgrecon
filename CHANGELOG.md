@@ -18,13 +18,20 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   flattened packages, and the reviewed drafts applied in order with
   an error log - the script this project kept writing by hand on the
   lab bench, finally an artifact the client's DBA runs.
-- Names past PostgreSQL's 63-byte identifier limit are guarded.
-  Oracle allows 128 bytes from 12.2; two names agreeing on their
-  first 63 bytes would fold to the same identifier and fail the DDL,
-  so a table whose columns collide refuses with both names in the
-  reason, a table folding onto an earlier one refuses likewise, and
-  a long name that stays unique emits with a note that PostgreSQL
-  will truncate it consistently.
+- Every emitted name passes through one namespace map that mirrors
+  the target's. PostgreSQL keeps tables, views, materialized views,
+  sequences, indexes, and key-backing indexes in a single namespace
+  per schema and truncates identifiers to 63 bytes; Oracle partitions
+  its namespaces differently and allows 128-byte names from 12.2, so
+  a legal source schema can hold pairs that fold to one name. The
+  first claimant wins; a later collider becomes a residue line naming
+  the earlier object - including the cases where CREATE OR REPLACE
+  would otherwise replace it silently. Colliding columns refuse their
+  table with both names in the reason, indexes and key constraints
+  that merely share a table's name keep their suffixed rename, a long
+  name that stays unique emits with a truncation note, and routines,
+  per-table constraints, and triggers get the same treatment under
+  their own namespaces.
 
 ## 0.5.0 - 2026-08-23
 
