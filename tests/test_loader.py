@@ -371,3 +371,33 @@ def test_license_mview_and_partition_facts_load(tmp_path: Path) -> None:
         " WHERE partition_name = 'P2021'"
     ).fetchone()
     assert high == ("TO_DATE(' 2021-01-01', 'YYYY-MM-DD')", 0)
+
+
+def test_error_bearing_spool_degrades_not_crashes(tmp_path: Path) -> None:
+    # A query that fails on the server leaves its error message in the
+    # spool; the load keeps every good file and records a warning.
+    dump = tmp_path / "dump"
+    dump.mkdir()
+    (dump / "objects.csv").write_text(
+        '\n"OWNER","OBJECT_NAME","OBJECT_TYPE","STATUS","CREATED","LAST_DDL_TIME"\n'
+        '"HR","EMP","TABLE","VALID","2026-01-01","2026-01-01"\n',
+        encoding="utf-8",
+    )
+    (dump / "grants.csv").write_text(
+        "\nSELECT grantee, owner, table_name, privilege, grantable\n"
+        "                *\n"
+        "ERROR at line 1:\n"
+        'ORA-00904: "OWNER": invalid identifier\n\n',
+        encoding="utf-8",
+    )
+    db = tmp_path / "inv.db"
+    counts = load_dump(dump, db)
+    assert counts["objects"] == 1
+    conn = sqlite3.connect(db)
+    try:
+        warn = conn.execute(
+            "SELECT value FROM meta WHERE key = 'load_warning:grants'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert warn is not None and "skipped" in warn[0]

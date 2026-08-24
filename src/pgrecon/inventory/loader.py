@@ -496,7 +496,25 @@ def _load_csv(
                 for header, column in mapping.items()
             )
         )
-    conn.executemany(sql, rows)
+    try:
+        conn.executemany(sql, rows)
+    except sqlite3.IntegrityError:
+        # A spool carrying an error message instead of data, or a
+        # malformed row, must degrade like every other bad input: the
+        # good rows load, the bad ones are counted in a meta warning,
+        # and the load never crashes on a client's dump.
+        kept = 0
+        for row in rows:
+            try:
+                conn.execute(sql, row)
+                kept += 1
+            except sqlite3.IntegrityError:
+                continue
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+            (f"load_warning:{table}", f"{len(rows) - kept} rows skipped"),
+        )
+        return kept
     return len(rows)
 
 
