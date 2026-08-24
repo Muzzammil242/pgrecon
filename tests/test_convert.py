@@ -911,3 +911,50 @@ def test_comments_and_grants_travel_with_the_schema(facts_db: Path) -> None:
     assert sql.count("GRANT SELECT ON emp TO app_ro;") == 2
     reasons = [r.reason for r in result.residue if r.kind == "grant"]
     assert reasons and "FLASHBACK" in reasons[0]
+
+
+def test_names_past_the_identifier_limit(tmp_path: Path) -> None:
+    prefix = "customer_account_reconciliation_adjustment_reference_number"
+    alpha = (prefix + "_col_alpha").upper()  # 69 chars, same first 63
+    beta = (prefix + "_col_beta").upper()
+    lone = (prefix + "_settled_flag").upper()  # long but unique
+    tab_a = (prefix + "_history_alpha").upper()
+    tab_b = (prefix + "_history_beta").upper()
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.executescript(
+        f"""
+        INSERT INTO tables (owner, table_name, temporary) VALUES
+          ('APP', 'COLLIDING', 'N'), ('APP', 'SURVIVOR', 'N'),
+          ('APP', '{tab_a}', 'N'), ('APP', '{tab_b}', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('APP', 'COLLIDING', '{alpha}', 1, 'VARCHAR2', 30, NULL, NULL, 'Y'),
+          ('APP', 'COLLIDING', '{beta}',  2, 'VARCHAR2', 30, NULL, NULL, 'Y'),
+          ('APP', 'SURVIVOR',  '{lone}',  1, 'VARCHAR2', 30, NULL, NULL, 'Y'),
+          ('APP', '{tab_a}', 'ID', 1, 'NUMBER', 22, 10, 0, 'N'),
+          ('APP', '{tab_b}', 'ID', 1, 'NUMBER', 22, 10, 0, 'N');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(db)
+    sql = result.sql
+    # Two columns folding to one name would fail the CREATE outright;
+    # the table refuses with both names in the reason.
+    assert "CREATE TABLE colliding" not in sql
+    table_reasons = [r.reason for r in result.residue if r.object_name == "COLLIDING"]
+    assert table_reasons and alpha in table_reasons[0] and beta in table_reasons[0]
+    # A long name that stays unique after truncation emits verbatim
+    # with a note; PostgreSQL truncates it consistently everywhere.
+    assert f"CREATE TABLE {tab_a.lower()}" in sql
+    assert lone.lower() in sql
+    notes = [r for r in result.residue if r.kind == "note" and "63-byte" in r.reason]
+    assert {r.object_name for r in notes} >= {tab_a, f"SURVIVOR.{lone}"}
+    # The second table folding onto the first refuses; only one of the
+    # pair may exist on the target.
+    assert f"CREATE TABLE {tab_b.lower()}" not in sql
+    clash = [r for r in result.residue if r.object_name == tab_b and r.kind == "table"]
+    assert clash and tab_a in clash[0].reason
+    assert result.tables == 2

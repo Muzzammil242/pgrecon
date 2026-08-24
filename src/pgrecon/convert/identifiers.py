@@ -1,6 +1,7 @@
 """Identifier folding and expression translation helpers."""
 
 import re
+from collections.abc import Iterable
 
 import sqlglot
 from sqlglot import Expr, exp
@@ -94,6 +95,41 @@ def ident(name: str) -> str:
     if _PLAIN_IDENT.match(lowered) and lowered not in _RESERVED:
         return lowered
     return '"' + name.replace('"', '""') + '"'
+
+
+# PostgreSQL truncates identifiers to 63 bytes at parse time, quoted
+# or not, keeping multibyte characters whole. Oracle allows 128 bytes
+# from 12.2, so catalog names can arrive past the limit; two of them
+# agreeing on their first 63 bytes would fold to the same name and
+# make the DDL fail.
+_NAMEDATALEN = 63
+
+
+def over_limit(name: str) -> bool:
+    return len(name.encode("utf-8")) > _NAMEDATALEN
+
+
+def pg_truncate(name: str) -> str:
+    """The name PostgreSQL will actually store."""
+    cut = name.encode("utf-8")[:_NAMEDATALEN]
+    while cut:
+        try:
+            return cut.decode("utf-8")
+        except UnicodeDecodeError:
+            cut = cut[:-1]
+    return ""
+
+
+def truncation_clash(names: Iterable[str]) -> tuple[str, str] | None:
+    """The first pair of names PostgreSQL would fold together, if any."""
+    seen: dict[str, str] = {}
+    for name in names:
+        key = pg_truncate(name.lower())
+        prior = seen.get(key)
+        if prior is not None and prior != name:
+            return prior, name
+        seen[key] = name
+    return None
 
 
 def _concat_parts(node: Expr) -> list[Expr]:

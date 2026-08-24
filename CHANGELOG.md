@@ -18,6 +18,13 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   flattened packages, and the reviewed drafts applied in order with
   an error log - the script this project kept writing by hand on the
   lab bench, finally an artifact the client's DBA runs.
+- Names past PostgreSQL's 63-byte identifier limit are guarded.
+  Oracle allows 128 bytes from 12.2; two names agreeing on their
+  first 63 bytes would fold to the same identifier and fail the DDL,
+  so a table whose columns collide refuses with both names in the
+  reason, a table folding onto an earlier one refuses likewise, and
+  a long name that stays unique emits with a note that PostgreSQL
+  will truncate it consistently.
 
 ## 0.5.0 - 2026-08-23
 

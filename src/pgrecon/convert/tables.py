@@ -3,7 +3,14 @@
 import re
 import sqlite3
 
-from pgrecon.convert.identifiers import _default_guard, _fold_expression, ident
+from pgrecon.convert.identifiers import (
+    _default_guard,
+    _fold_expression,
+    ident,
+    over_limit,
+    pg_truncate,
+    truncation_clash,
+)
 from pgrecon.convert.partitions import _emit_partition_children, _partition_meta
 from pgrecon.convert.residue import Residue
 from pgrecon.convert.typemap import map_type
@@ -80,16 +87,57 @@ def emit_tables(
         "SELECT owner, table_name, temporary FROM tables ORDER BY owner, table_name"
     ).fetchall()
 
+    # Names PostgreSQL will store for the tables emitted so far; a
+    # later table folding onto one of them would fail its CREATE.
+    claimed: dict[str, str] = {}
+
     for t in tables:
         owner, table = t["owner"], t["table_name"]
         if skip_mviews and (table or "").upper() in skip_mviews:
             continue
+        key = pg_truncate((table or "").lower())
+        prior = claimed.get(key)
+        if prior is not None:
+            residue.append(
+                Residue(
+                    owner,
+                    table,
+                    "table",
+                    f"name collides with table {prior} within PostgreSQL's"
+                    " 63-byte identifier limit; rename before migration",
+                )
+            )
+            continue
+        claimed[key] = table
         cols = _columns(conn, owner, table)
         if not cols:
             residue.append(
                 Residue(owner, table, "table", "no column facts in the inventory")
             )
             continue
+        clash = truncation_clash((c["column_name"] or "") for c in cols)
+        if clash is not None:
+            residue.append(
+                Residue(
+                    owner,
+                    table,
+                    "table",
+                    f"columns {clash[0]} and {clash[1]} collide within"
+                    " PostgreSQL's 63-byte identifier limit; rename"
+                    " before migration",
+                )
+            )
+            continue
+        if over_limit(table or ""):
+            residue.append(
+                Residue(
+                    owner,
+                    table,
+                    "note",
+                    "name exceeds PostgreSQL's 63-byte identifier limit"
+                    " and will be truncated on apply",
+                )
+            )
         extras = {
             (r["column_name"] or "").upper(): r
             for r in conn.execute(
@@ -200,6 +248,16 @@ def emit_tables(
                         )
                     else:
                         suffix = f" DEFAULT {folded}"
+            if over_limit(c["column_name"] or ""):
+                residue.append(
+                    Residue(
+                        owner,
+                        f"{table}.{c['column_name']}",
+                        "note",
+                        "name exceeds PostgreSQL's 63-byte identifier"
+                        " limit and will be truncated on apply",
+                    )
+                )
             lines.append(f"    {ident(c['column_name'])} {col_type}{suffix}{null}")
             kept_columns.add(cname)
         if not lines:
