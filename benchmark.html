@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pgrecon benchmark methodology</title>
+<meta name="description" content="How five Oracle-to-PostgreSQL converters were benchmarked against a live PostgreSQL 16: schemas, tool versions, per-tool accommodations, and how to reproduce the numbers.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23336791'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='15' font-weight='bold' fill='white' text-anchor='middle'%3Epg%3C/text%3E%3C/svg%3E">
+<style>
+  body {
+    margin: 0 auto;
+    max-width: 46em;
+    padding: 2em 1em 4em;
+    background: #ffffff;
+    color: #1c1c1c;
+    font-family: -apple-system, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  .masthead { border-left: 4px solid #336791; padding-left: .8em; margin-bottom: 1.2em; }
+  h1 { font-size: 1.7em; margin: 0 0 .05em; }
+  h1 small { font-size: .55em; font-weight: normal; color: #555; }
+  h2 { font-size: 1.2em; margin: 2em 0 .4em; border-bottom: 2px solid #336791; padding-bottom: .2em; }
+  p { margin: .6em 0; }
+  a { color: #336791; }
+  .top { color: #555; margin: .2em 0 1em; }
+  .nav { margin: .8em 0 0; }
+  .nav a { margin-right: 1.2em; }
+  pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    background: #f6f6f4;
+    border: 1px solid #ddd;
+    padding: .8em 1em;
+    overflow-x: auto;
+  }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; background: #f6f6f4; padding: .05em .3em; }
+  table { border-collapse: collapse; width: 100%; margin: .8em 0; font-size: 15px; }
+  th, td { border: 1px solid #ccc; padding: .45em .7em; text-align: left; vertical-align: top; }
+  th { background: #f2f2f0; }
+  td.n { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .zero { color: #116329; font-weight: bold; }
+  tr.us td { background: rgba(17, 99, 41, 0.07); }
+  .tablewrap { overflow-x: auto; }
+  ul { margin: .4em 0 .8em; padding-left: 1.4em; }
+  li { margin: .25em 0; }
+  .fine { color: #555; font-size: 14px; }
+  footer { margin-top: 3em; border-top: 1px solid #ddd; padding-top: 1em; color: #555; font-size: 14px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #191919; color: #d6d6d6; }
+    a { color: #7cb3d9; }
+    footer, pre, th, td { border-color: #3a3a3a; }
+    h2 { border-color: #4e82ab; }
+    .masthead { border-left-color: #4e82ab; }
+    pre, code, th { background: #222; }
+    .top, .fine, footer, h1 small { color: #999; }
+    .zero { color: #4cbb62; }
+    tr.us td { background: rgba(76, 187, 98, 0.08); }
+  }
+</style>
+</head>
+<body>
+
+<div class="masthead">
+<h1>Benchmark methodology<br><small>five converters, nine schemas, one live PostgreSQL 16</small></h1>
+<p class="top">Everything behind the numbers on the
+<a href="./">pgrecon page</a>: what ran, which versions, what each tool
+needed to run at all, and how to reproduce it. August 2026.</p>
+</div>
+<p class="nav">
+  <a href="./">Back to pgrecon</a>
+  <a href="https://github.com/Muzzammil242/pgrecon">GitHub</a>
+</p>
+
+<h2>The question and the bar</h2>
+<p>Every converter claims to convert an Oracle schema. The benchmark
+asks one narrower question: when the tool's output is applied to a
+real PostgreSQL, statement by statement, how many statements does
+PostgreSQL itself reject? An error here is not a missing feature or
+a style complaint - it is a statement the target database refuses.
+That is the same bar a real migration hits in production, whether a
+tool warned about it or not.</p>
+<p>A zero on that bar does not mean everything converts, and the
+number only means something next to how much was attempted; the
+coverage numbers are stated below with the same precision as the
+error counts.</p>
+
+<h2>The nine schemas</h2>
+<ul>
+  <li>Oracle's official sample schemas <strong>HR</strong>,
+      <strong>OE</strong>, and <strong>CO</strong>
+      (<a href="https://github.com/oracle-samples/db-sample-schemas">db-sample-schemas</a> v21.1;
+      OE is the object-relational showcase).</li>
+  <li>Four well-known open-source PL/SQL projects, installed from
+      their own repositories: <strong>utPLSQL</strong> (UT3),
+      <strong>PLJSON</strong>, <strong>Logger</strong>, and
+      <strong>Alexandria</strong> - package-heavy by nature.</li>
+  <li><strong>RECON_TEST</strong>, a synthetic estate built to be
+      nasty on purpose - interval partitioning, package state,
+      compound and autonomous triggers, LONG, XMLTYPE, a db link, a
+      materialized view. It ships in this repository at
+      <code>tests/fixtures/synthetic/synthetic_schema.sql</code>.</li>
+  <li>One further private lab schema (heavy DDL surface: a datatype
+      zoo, wide grants, synonyms). It is not redistributable, so the
+      reproduction kit below covers eight of the nine schemas; every
+      tool ran against all nine under identical conditions.</li>
+</ul>
+<p>Source database: Oracle XE 21c (21.3), loaded with all nine
+schemas. Target: a stock <code>postgres:16</code> container. No
+compatibility extensions installed unless a tool's own output
+requires one, in which case that is recorded below.</p>
+
+<h2>Tools and versions</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>Tool</th><th>Version / mode</th></tr>
+  <tr class="us"><td>pgrecon</td><td>0.5.0, <code>pgrecon convert</code> from an offline dump</td></tr>
+  <tr><td>CYBERTEC ora_migrator</td><td>current release, August 2026, over oracle_fdw 2.9.0 (Oracle Instant Client 23)</td></tr>
+  <tr><td>Ora2Pg</td><td>v25.0, TYPE=TABLE,VIEW,SEQUENCE,TRIGGER,FUNCTION,PROCEDURE,PACKAGE</td></tr>
+  <tr><td>EDB Migration Toolkit</td><td>55.13.0, <code>-offlineMigration</code>, community PostgreSQL target</td></tr>
+  <tr><td>AWS Schema Conversion Tool</td><td>current build, August 2026, via its batch CLI (.scts scripts)</td></tr>
+</table>
+</div>
+
+<h2>How errors were counted</h2>
+<p>Each tool's generated SQL was applied to a fresh database in the
+same PostgreSQL 16 with <code>psql -qX</code> and
+<code>ON_ERROR_STOP</code> off, so every statement gets its chance;
+the error count is the number of lines PostgreSQL answered with
+<code>ERROR</code>. Function bodies were applied with
+<code>check_function_bodies</code> on wherever the tool's own output
+did not override it. Where a tool emitted per-schema files they were
+applied in the tool's own recommended order.</p>
+
+<h2>Per-tool accommodations</h2>
+<p>Runs were kept as fair as each tool allows; everything a tool
+needed beyond its documentation is recorded here.</p>
+<ul>
+  <li><strong>pgrecon:</strong> none. The output applied as emitted.</li>
+  <li><strong>Ora2Pg:</strong> two. Its output sets
+      <code>ON_ERROR_STOP</code> inside itself, so as shipped it
+      stops at its own first error (OE stopped at statement 29); the
+      self-abort was stripped to measure the full count. Its
+      SYS_GUID mapping silently requires the
+      <code>uuid-ossp</code> extension, which was pre-created.</li>
+  <li><strong>CYBERTEC ora_migrator:</strong> one environment fix
+      (a <code>libaio</code> symlink for the instant client on
+      Debian 13). Two schemas - utPLSQL and the private lab schema -
+      crashed whole in <code>db_migrate_prepare</code> on the
+      staging schema's own foreign keys and were never attempted;
+      they are counted as crashes, not errors. PL/SQL is out of its
+      scope by design and is not counted against it.</li>
+  <li><strong>EDB MTK:</strong> applied from its combined
+      per-schema file only (its per-class files repeat the same
+      statements; applying both would double-count). Its number is
+      generous: for one schema with 49 packages it emitted a single
+      CREATE SCHEMA - 51 bytes - and reported success. Across nine
+      logs its only unsupported-feature message was INTERVAL
+      partitioning, twice; packages and object types vanished
+      without a word.</li>
+  <li><strong>AWS SCT:</strong> applied without its
+      <code>aws_oracle_ext</code> runtime extension - the
+      portability question a client actually faces. Its converted
+      routines create cleanly (PostgreSQL only syntax-checks
+      function bodies) and depend on that extension when called;
+      the count reflects statements rejected at apply time.</li>
+</ul>
+
+<h2>Results</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>Converter</th><th>Statements rejected</th><th>Notes</th></tr>
+  <tr class="us"><td><strong>pgrecon 0.5</strong></td><td class="n zero">0</td>
+      <td>every decline a named residue line</td></tr>
+  <tr><td>CYBERTEC ora_migrator</td><td class="n">40</td>
+      <td>plus two whole-schema crashes</td></tr>
+  <tr><td>Ora2Pg v25</td><td class="n">77</td>
+      <td>49 on OE, 18 on the lab schema, 8 on RECON_TEST; clean on the simple estates</td></tr>
+  <tr><td>EDB MTK 55.13</td><td class="n">135</td>
+      <td>of 477 emitted statements; the low counts on package libraries are absence, not quality</td></tr>
+  <tr><td>AWS SCT</td><td class="n">481</td>
+      <td>clean on HR only; 214 on utPLSQL, 76 on Alexandria, 73 on PLJSON</td></tr>
+</table>
+</div>
+<p class="fine">Coverage, stated with the same precision: pgrecon
+converted 51 percent of all objects mechanically - above 90 percent
+on the business-shaped schemas, far below on the object-type and
+package showcases, which nothing converts mechanically. Every
+unconverted object is one line in the residue report with a reason.
+One hierarchical view was additionally verified row-for-row against
+the live Oracle running the original. pgrecon's numbers were
+re-verified at 0.5.0; the other tools' outputs were unchanged from
+their original runs.</p>
+
+<h2>Reproduce it</h2>
+<pre>podman run -d --name oracle-xe -e ORACLE_PASSWORD=... gvenzl/oracle-xe:21
+podman run -d --name pg-target -e POSTGRES_PASSWORD=... postgres:16
+# install HR/OE/CO from db-sample-schemas v21.1, the four projects
+# from their repositories, RECON_TEST from this repo's fixture
+pip install pgrecon==0.5.0
+pgrecon script            # extraction script; run per schema via sqlplus
+pgrecon load dump_dir --db est.db
+pgrecon convert --db est.db
+psql -qX -f schema_pg.sql 2>&1 | grep -c ^ERROR</pre>
+<p>Run each competing tool per its own documentation against the
+same schemas, apply with the same psql invocation, count the same
+way. If a number here looks wrong, that is a fair reaction -
+reproduce it and say so on the
+<a href="https://github.com/Muzzammil242/pgrecon/issues">issue tracker</a>.</p>
+
+<footer>
+Part of <a href="./">pgrecon</a>, Apache-2.0, built in the open by
+<a href="https://muzzammil242.github.io/">Muzzammil Sarwar</a>.
+</footer>
+
+</body>
+</html>
