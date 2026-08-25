@@ -1,3 +1,5 @@
+<p align="center"><img src=".github/logo.svg" width="112" alt="pgrecon"></p>
+
 # pgrecon
 
 [![CI](https://github.com/Muzzammil242/pgrecon/actions/workflows/ci.yml/badge.svg)](https://github.com/Muzzammil242/pgrecon/actions/workflows/ci.yml)

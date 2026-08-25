@@ -1,0 +1,6 @@
+<svg width="128" height="128" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <rect width="32" height="32" rx="7" fill="#336791"/>
+  <circle cx="14" cy="13.5" r="7.5" stroke="white" stroke-width="2" fill="none"/>
+  <text x="14" y="16.5" font-family="Consolas, Menlo, monospace" font-size="8.5" font-weight="bold" fill="white" text-anchor="middle">pg</text>
+  <line x1="19.5" y1="19" x2="26" y2="25.5" stroke="white" stroke-width="2.6" stroke-linecap="round"/>
+</svg>
