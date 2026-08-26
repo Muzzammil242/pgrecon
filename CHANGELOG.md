@@ -2,7 +2,7 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## Unreleased
+## 0.6.0 - 2026-08-27
 
 - Privileges and documentation travel with the schema. The extraction
   captures object grants, table and column comments, and the database
@@ -32,6 +32,11 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   name that stays unique emits with a truncation note, and routines,
   per-table constraints, and triggers get the same treatment under
   their own namespaces.
+- A malformed spool row degrades instead of crashing the load: the
+  good rows land, a load_warning meta row counts the skipped ones,
+  and a client's dump never aborts an ingestion. Found when a live
+  extraction spooled a server error message into grants.csv; the
+  query is fixed and the loader now survives the class.
 
 ## 0.5.0 - 2026-08-23
 
