@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://muzzammil242.github.io/pgrecon/sitemap.xml
