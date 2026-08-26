@@ -1,6 +1,4 @@
-<p align="center"><img src=".github/logo.svg" width="112" alt="pgrecon"></p>
-
-# pgrecon
+# <img src=".github/logo.svg" width="32" alt=""> pgrecon
 
 [![CI](https://github.com/Muzzammil242/pgrecon/actions/workflows/ci.yml/badge.svg)](https://github.com/Muzzammil242/pgrecon/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/pgrecon.svg)](https://pypi.org/project/pgrecon/)
