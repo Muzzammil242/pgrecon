@@ -40,3 +40,47 @@ jobs:
 
       - name: Tests
         run: uv run pytest --cov --cov-fail-under=85
+
+  live-apply:
+    # The claim on the tin: the bundled sample's conversion applies to
+    # a real PostgreSQL 16 with zero rejected statements, on every
+    # commit - not just on the author's bench.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Convert the bundled sample
+        run: |
+          uv run pgrecon load examples/dump_oracle21c --db sample.db
+          uv run pgrecon convert --db sample.db --out schema_pg.sql --residue residue.txt
+
+      - name: Apply to live PostgreSQL 16
+        env:
+          PGPASSWORD: ci
+        run: |
+          psql -h 127.0.0.1 -U postgres -qX -v ON_ERROR_STOP=1 -f schema_pg.sql
+          echo "applied with zero rejected statements"
+
+      - name: Residue is named, not empty-by-accident
+        run: |
+          test -s residue.txt
+          grep -c ":" residue.txt
