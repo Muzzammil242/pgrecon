@@ -121,7 +121,7 @@ requires one, in which case that is recorded below.</p>
 <div class="tablewrap">
 <table>
   <tr><th>Tool</th><th>Version / mode</th></tr>
-  <tr class="us"><td>pgrecon</td><td>0.5.0, <code>pgrecon convert</code> from an offline dump</td></tr>
+  <tr class="us"><td>pgrecon</td><td>0.6.0, <code>pgrecon convert</code> from an offline dump</td></tr>
   <tr><td>CYBERTEC ora_migrator</td><td>current release, August 2026, over oracle_fdw 2.9.0 (Oracle Instant Client 23)</td></tr>
   <tr><td>Ora2Pg</td><td>v25.0, TYPE=TABLE,VIEW,SEQUENCE,TRIGGER,FUNCTION,PROCEDURE,PACKAGE</td></tr>
   <tr><td>EDB Migration Toolkit</td><td>55.13.0, <code>-offlineMigration</code>, community PostgreSQL target</td></tr>
@@ -177,7 +177,7 @@ needed beyond its documentation is recorded here.</p>
 <div class="tablewrap">
 <table>
   <tr><th>Converter</th><th>Statements rejected</th><th>Notes</th></tr>
-  <tr class="us"><td><strong>pgrecon 0.5</strong></td><td class="n zero">0</td>
+  <tr class="us"><td><strong>pgrecon 0.6</strong></td><td class="n zero">0</td>
       <td>every decline a named residue line</td></tr>
   <tr><td>CYBERTEC ora_migrator</td><td class="n">40</td>
       <td>plus two whole-schema crashes</td></tr>
@@ -195,9 +195,10 @@ on the business-shaped schemas, far below on the object-type and
 package showcases, which nothing converts mechanically. Every
 unconverted object is one line in the residue report with a reason.
 One hierarchical view was additionally verified row-for-row against
-the live Oracle running the original. pgrecon's numbers were
-re-verified at 0.5.0; the other tools' outputs were unchanged from
-their original runs.</p>
+the live Oracle running the original. pgrecon's column was
+re-run in full at 0.6.0 - fresh extractions of all nine schemas,
+converted and applied 2026-08-27, zero rejected statements; the
+other tools' outputs are unchanged from their original runs.</p>
 
 <h2>Reproduce it</h2>
 <pre>podman run -d --name oracle-xe -e ORACLE_PASSWORD=... gvenzl/oracle-xe:21
