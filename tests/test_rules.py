@@ -738,3 +738,97 @@ def test_grants_rule_counts_per_grantee(
     )
     conn.commit()
     assert sorted(fired(db, "R-ENV-02")) == ["APP_RO", "APP_RW"]
+
+
+# Every rule ships with a fixture test; these fifteen were exercised
+# nowhere - not referenced in the suite and silent on the bundled
+# dump - so a detector regression in any of them would have shipped
+# unnoticed. Minimal inventories, one per rule.
+_RULE_FIXTURES = {
+    "R-IDX-01": (
+        "INSERT INTO indexes (owner, index_name, table_name, index_type)"
+        " VALUES ('HR', 'BM_IX', 'SALES', 'BITMAP')"
+    ),
+    "R-IDX-03": (
+        "INSERT INTO indexes (owner, index_name, table_name, index_type)"
+        " VALUES ('HR', 'TXT_IX', 'DOCS', 'DOMAIN')"
+    ),
+    "R-OBJ-04": (
+        "INSERT INTO features (feature, detail, count) VALUES ('queues', 'AQ', 2)"
+    ),
+    "R-OBJ-07": (
+        "INSERT INTO features (feature, detail, count)"
+        " VALUES ('vpd_policies', 'ALL_POLICIES', 1)"
+    ),
+    "R-PART-02": (
+        "INSERT INTO part_tables (owner, table_name, partitioning_type,"
+        " subpartitioning_type, partition_count, interval)"
+        " VALUES ('HR', 'SALES', 'RANGE', 'NONE', 4, NULL)"
+    ),
+    "R-SRC-06": (
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'OPEN_IT', 'PROCEDURE', 1, 'l_cur SYS_REFCURSOR;')"
+    ),
+    "R-SRC-08": (
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'TOP_N', 'PROCEDURE', 1,"
+        " 'SELECT id INTO l_id FROM emp WHERE ROWNUM < 10;')"
+    ),
+    "R-SRC-09": (
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'UPSERT', 'PROCEDURE', 1,"
+        " 'MERGE INTO t USING s ON (t.id = s.id)')"
+    ),
+    "R-SRC-10": (
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'FLAGS', 'FUNCTION', 1, 'RETURN DECODE(p, 1, ''Y'', ''N'');')"
+    ),
+    "R-SRC-12": (
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'COUNTS', 'PROCEDURE', 1,"
+        " 'IF SQL%ROWCOUNT > 0 THEN NULL; END IF;')"
+    ),
+    "R-SRC-17": (
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'STREAM_IT', 'FUNCTION', 1,"
+        " 'FUNCTION stream_it RETURN t_tab PIPELINED IS')"
+    ),
+    "R-SYS-02": (
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'CALL_OUT', 'PROCEDURE', 1,"
+        " 'l_resp := UTL_HTTP.REQUEST(''http://example.com'');')"
+    ),
+    "R-SYS-03": (
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'DYN_RUN', 'PROCEDURE', 1,"
+        " 'DBMS_SQL.PARSE(l_cur, l_sql, DBMS_SQL.NATIVE);')"
+    ),
+    "R-TAB-02": (
+        "INSERT INTO features (feature, detail, count) VALUES ('iot_tables', 'IOT', 1)"
+    ),
+    "R-TAB-03": (
+        "INSERT INTO features (feature, detail, count)"
+        " VALUES ('external_tables', 'EXT', 1)"
+    ),
+}
+
+
+@pytest.mark.parametrize("rule_id", sorted(_RULE_FIXTURES))
+def test_rule_fires_on_minimal_inventory(
+    inventory: tuple[sqlite3.Connection, Path], rule_id: str
+) -> None:
+    conn, db = inventory
+    conn.executescript(_RULE_FIXTURES[rule_id])
+    conn.commit()
+    assert fired(db, rule_id), rule_id
+
+
+def test_bundled_dump_headline_numbers(tmp_path: Path) -> None:
+    # The README quotes these exact numbers; nothing else asserted
+    # them, so they could drift silently between releases.
+    db = tmp_path / "sample.db"
+    load_dump(Path("examples/dump_oracle21c"), db)
+    summary = summarize(run_rules(db))
+    assert summary["findings"] == 56
+    assert round(summary["effort_points"], 1) == 76.7
+    assert summary["by_severity"]["high"] == 10

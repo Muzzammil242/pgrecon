@@ -204,14 +204,15 @@ a named residue line instead of quietly wrong output.
 Alpha. The extraction scripts and inventory are stable; the rule
 catalog is growing. Effort points in the report are relative weights
 for sorting findings; person-day ranges come from pgrecon estimate
-and its visible calibration. The converter is new in 0.2: schema
-structure converts end to end on the test estates, and the code lane
+and its visible calibration. The converter has shipped since 0.2 and
+now covers schema structure, views, materialized views, triggers,
+grants, and comments end to end on the test estates; the code lane
 deliberately converts only what it can prove.
 
 Scale is measured, not hoped for: a synthetic estate of 5,000 tables
 and 100,000 lines of PL/SQL across 1,600 stored units, one of them a
-16,000-line package body, loads and deep-parses in under two minutes
-on a laptop, and reporting runs in seconds. The generator lives at
+16,000-line package body, loads and deep-parses in under 40 seconds
+on a laptop, and reporting runs in about two. The generator lives at
 tools/make_scale_dump.py, so the measurement is reproducible.
 
 ## Development

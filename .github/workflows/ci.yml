@@ -71,16 +71,18 @@ jobs:
       - name: Convert the bundled sample
         run: |
           uv run pgrecon load examples/dump_oracle21c --db sample.db
+          uv run pgrecon report --db sample.db > /dev/null
           uv run pgrecon convert --db sample.db --out schema_pg.sql --residue residue.txt
 
       - name: Apply to live PostgreSQL 16
         env:
           PGPASSWORD: ci
         run: |
-          psql -h 127.0.0.1 -U postgres -qX -v ON_ERROR_STOP=1 -f schema_pg.sql
+          psql -h 127.0.0.1 -U postgres -qX -v ON_ERROR_STOP=1 \
+            -c "SET check_function_bodies = on" -f schema_pg.sql
           echo "applied with zero rejected statements"
 
-      - name: Residue is named, not empty-by-accident
+      - name: Residue file is present and carries reasons
         run: |
           test -s residue.txt
-          grep -c ":" residue.txt
+          grep -q "declined to convert" residue.txt

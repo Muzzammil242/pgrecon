@@ -1,4 +1,5 @@
-"""Rules over tables, partitioning, indexes, and statistics."""
+"""Rules over the environment (character set, grants), tables,
+partitioning, indexes, and statistics."""
 
 from pgrecon.rules import Rule, Severity, sql_detector
 
