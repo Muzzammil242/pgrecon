@@ -198,7 +198,12 @@ One hierarchical view was additionally verified row-for-row against
 the live Oracle running the original. pgrecon's column was
 re-run in full at 0.6.0 - fresh extractions of all nine schemas,
 converted and applied 2026-08-27, zero rejected statements; the
-other tools' outputs are unchanged from their original runs.</p>
+other tools' outputs are unchanged from their original runs.
+pgrecon 0.7.0 shipped on 2026-09-03 without a re-run of this table:
+its changes are guarded instead by CI, which applies the converter's
+output to PostgreSQL 16, 17, and 18 on every commit and fuzzes it
+nightly against adversarial schemas; the row is re-measured at the
+next full run.</p>
 
 <h2>Reproduce it</h2>
 <pre>podman run -d --name oracle-xe -e ORACLE_PASSWORD=... gvenzl/oracle-xe:21
