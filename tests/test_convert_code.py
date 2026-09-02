@@ -501,3 +501,13 @@ def test_rowtype_return_becomes_the_table_type(code_db: Path) -> None:
     assert "FUNCTION row_fn(p_kind IN varchar) RETURNS t_fees LANGUAGE plpgsql" in flat
     assert "l_row t_fees%ROWTYPE;" in flat
     assert "FROM t_fees WHERE kind = p_kind LIMIT 1;" in flat
+
+
+def test_quoted_uppercase_names_fold_like_the_ddl() -> None:
+    from pgrecon.convert.plsql_rewrite import _fold_written
+
+    assert _fold_written('"ADD_DATA"') == "add_data"
+    assert _fold_written('"RATE WITH SPACE 16"') == '"rate with space 16"'
+    assert _fold_written('"ORDER"') == '"order"'
+    assert _fold_written('"myFunc"') == '"myFunc"'
+    assert _fold_written("plain") == "plain"

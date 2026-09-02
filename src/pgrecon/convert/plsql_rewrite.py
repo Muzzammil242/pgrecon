@@ -16,7 +16,7 @@ from typing import Any
 from antlr4 import ParseTreeWalker
 from antlr4.tree.Tree import TerminalNode
 
-from pgrecon.convert.identifiers import _PLAIN_IDENT, _RESERVED, ident
+from pgrecon.convert.identifiers import ident
 from pgrecon.convert.typemap import map_code_type
 from pgrecon.plsql import parse_source
 from pgrecon.plsql._generated.PlSqlLexer import PlSqlLexer as L
@@ -51,16 +51,14 @@ def _fold_written(name: str) -> str:
     """A name as written in source, folded the way ident() folds.
 
     Generated DDL writes '"ADD_DATA"'; the converted schema knows that
-    object as add_data. Anything not plainly foldable stays verbatim.
+    object as add_data, and '"RATE WITH SPACE"' as "rate with space".
+    A quoted name carrying lowercase letters was case-sensitive on
+    Oracle and stays verbatim, as the DDL emitters keep it.
     """
     if len(name) > 2 and name[0] == '"' and name[-1] == '"':
         inner = name[1:-1]
-        if (
-            inner == inner.upper()
-            and _PLAIN_IDENT.match(inner.lower())
-            and inner.lower() not in _RESERVED
-        ):
-            return inner.lower()
+        if inner == inner.upper():
+            return ident(inner)
     return name
 
 
