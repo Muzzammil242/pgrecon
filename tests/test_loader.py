@@ -420,3 +420,25 @@ def test_ddl_marker_accepts_names_with_spaces(tmp_path: Path) -> None:
     names = {r[0] for r in conn.execute("SELECT name FROM ddl WHERE type = 'VIEW'")}
     conn.close()
     assert names == {"V WITH SPACE", "V, COMMA"}
+
+
+def test_char_semantics_columns_load(tmp_path: Path) -> None:
+    dump = tmp_path / "dump"
+    dump.mkdir()
+    (dump / "columns.csv").write_text(
+        "\n"
+        '"OWNER","TABLE_NAME","COLUMN_NAME","COLUMN_ID","DATA_TYPE","DATA_LENGTH",'
+        '"DATA_PRECISION","DATA_SCALE","NULLABLE","CHAR_LENGTH","CHAR_USED"\n'
+        '"HR","T","NAME",1,"VARCHAR2",120,,,"Y",30,"C"\n'
+        '"HR","T","CODE",2,"VARCHAR2",10,,,"Y",10,"B"\n',
+        encoding="utf-8",
+    )
+    db = tmp_path / "inv.db"
+    load_dump(dump, db)
+    conn = sqlite3.connect(db)
+    rows = conn.execute(
+        "SELECT column_name, data_length, char_length, char_used FROM columns"
+        " ORDER BY position"
+    ).fetchall()
+    conn.close()
+    assert rows == [("NAME", 120, 30, "C"), ("CODE", 10, 10, "B")]

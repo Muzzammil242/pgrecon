@@ -148,4 +148,31 @@ RULES = [
             " data_type FROM columns WHERE data_type LIKE 'SDO_%'"
         ),
     ),
+    Rule(
+        id="R-TYPE-09",
+        title="String lengths declared in bytes",
+        category="data types",
+        severity=Severity.INFO,
+        effort=0.5,
+        remedy=(
+            "VARCHAR2 and CHAR columns declared without CHAR semantics limit"
+            " bytes, and in a multibyte database a 30-byte column holds fewer"
+            " than 30 characters of non-ASCII text. PostgreSQL lengths count"
+            " characters, so the converted columns accept more text than"
+            " Oracle did; add CHECK (octet_length(col) <= n) where the byte"
+            " limit carried meaning, and expect NLS_LENGTH_SEMANTICS to stop"
+            " mattering."
+        ),
+        detector=sql_detector(
+            "SELECT owner, COUNT(*) || ' string columns', 'SCHEMA',"
+            " 'declared in BYTE semantics; PostgreSQL counts characters'"
+            " FROM columns WHERE char_used = 'B'"
+            " AND data_type IN ('VARCHAR2', 'CHAR', 'VARCHAR')"
+            " AND EXISTS (SELECT 1 FROM nls_params WHERE key = 'NLS_CHARACTERSET'"
+            "   AND (value LIKE 'AL32%' OR value LIKE 'AL16%' OR value LIKE 'UTF%'"
+            "   OR value LIKE 'ZHS16%' OR value LIKE 'ZHT16%' OR value LIKE 'JA16%'"
+            "   OR value LIKE 'KO16%'))"
+            " GROUP BY owner"
+        ),
+    ),
 ]

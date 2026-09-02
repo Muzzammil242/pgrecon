@@ -115,12 +115,12 @@ variant for you.
 
 ## What it checks
 
-79 rules at present, each shipping with fixture tests:
+80 rules at present, each shipping with fixture tests:
 
 | Category        | Rules | Among them |
 | --------------- | ----- | ---------- |
 | Environment     | 2     | character-set encoding decision, object grants to migrate |
-| Data types      | 8     | LONG, XMLTYPE, ROWID and BFILE, SDO_GEOMETRY, TIMESTAMP WITH LOCAL TIME ZONE |
+| Data types      | 9     | LONG, XMLTYPE, ROWID and BFILE, SDO_GEOMETRY, BYTE-semantics strings, TIMESTAMP WITH LOCAL TIME ZONE |
 | Storage         | 12    | interval partitioning, global temporary tables, IOTs, read-only tables, bitmap and function-based indexes |
 | PL/SQL code     | 18    | autonomous transactions, dynamic SQL, FORALL, collection types, the empty-string NULL trap |
 | SQL constructs  | 13    | CONNECT BY, (+) outer joins, ROWNUM, MERGE, SYS_CONTEXT, the MODEL clause, PIVOT, flashback queries |

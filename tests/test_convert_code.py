@@ -271,7 +271,9 @@ def code_db(tmp_path: Path) -> Path:
         INSERT INTO objects VALUES ('AX', 'PKG_X', 'PACKAGE', 'VALID', NULL, NULL);
         INSERT INTO objects VALUES ('AX', 'TY_Y', 'TYPE', 'VALID', NULL, NULL);
         INSERT INTO tables (owner, table_name) VALUES ('AX', 'T_FEES');
-        INSERT INTO columns VALUES
+        INSERT INTO columns (owner, table_name, column_name, position, data_type,
+                             data_length, data_precision, data_scale, nullable)
+          VALUES
             ('AX', 'T_FEES', 'KIND', 1, 'VARCHAR2', 30, NULL, NULL, 'Y'),
             ('AX', 'T_FEES', 'FEE', 2, 'NUMBER', 22, 10, 2, 'Y'),
             ('AX', 'T_FEES', 'TAG', 3, 'VARCHAR2', 60, NULL, NULL, 'Y');

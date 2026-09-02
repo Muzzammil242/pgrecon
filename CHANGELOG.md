@@ -97,6 +97,14 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   clause as AND (...), SET t.col loses the alias PostgreSQL rejects,
   and USING dual becomes a one-row source; WHEN MATCHED ... DELETE
   declines by name.
+- String length semantics. Both extraction scripts now capture
+  CHAR_LENGTH and CHAR_USED for every column, and string widths map by
+  characters - what PostgreSQL counts - so VARCHAR2(30 CHAR) becomes
+  varchar(30) instead of varchar(120), and NVARCHAR2(200) varchar(200)
+  instead of varchar(400). R-TYPE-09 (info) reports columns declared
+  in BYTE semantics in a multibyte database, where the converted
+  columns accept more text than Oracle did, and the converter leaves a
+  note per affected table; the catalog is at 80 rules.
 - The bundled example dump is regenerated from the Oracle-loop job:
   35 spool files including grants, comments, character set, license
   posture, feature usage, partition bounds, sequences, and column

@@ -65,6 +65,8 @@ CSV_TABLES: dict[str, tuple[str, dict[str, str]]] = {
             "DATA_PRECISION": "data_precision",
             "DATA_SCALE": "data_scale",
             "NULLABLE": "nullable",
+            "CHAR_LENGTH": "char_length",
+            "CHAR_USED": "char_used",
         },
     ),
     "source.csv": (
@@ -344,6 +346,7 @@ INT_COLUMNS = {
     "data_length",
     "data_precision",
     "data_scale",
+    "char_length",
     "line",
     "count",
     "partition_count",

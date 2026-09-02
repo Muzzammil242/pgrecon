@@ -36,11 +36,26 @@ def _fractional(base: str, digits: str) -> Mapped:
     return Mapped(f"{base}({precision})")
 
 
+def _char_width(dtype: str, length: int | None, char_length: int | None) -> int | None:
+    """The declared width in characters, which PostgreSQL lengths count.
+
+    CHAR_LENGTH is the declared width whatever the semantics were; a
+    dump without it (older extraction scripts) falls back to the byte
+    length, halved for the national types whose bytes are UTF-16.
+    """
+    if char_length:
+        return char_length
+    if length and dtype in ("NVARCHAR2", "NCHAR"):
+        return max(length // 2, 1)
+    return length
+
+
 def map_type(
     data_type: str | None,
     length: int | None,
     precision: int | None,
     scale: int | None,
+    char_length: int | None = None,
 ) -> Mapped:
     dtype = (data_type or "").strip().upper()
 
@@ -64,9 +79,11 @@ def map_type(
         return Mapped("double precision")
 
     if dtype in ("VARCHAR2", "NVARCHAR2", "VARCHAR"):
-        return Mapped(f"varchar({length})" if length else "varchar")
+        width = _char_width(dtype, length, char_length)
+        return Mapped(f"varchar({width})" if width else "varchar")
     if dtype in ("CHAR", "NCHAR"):
-        return Mapped(f"char({length})" if length else "char")
+        width = _char_width(dtype, length, char_length)
+        return Mapped(f"char({width})" if width else "char")
     if dtype in ("CLOB", "NCLOB"):
         return Mapped("text")
     if dtype == "LONG":

@@ -83,8 +83,9 @@ def _mapped_types(
     types: list[str | None] = []
     for name in columns:
         row = conn.execute(
-            "SELECT data_type, data_length, data_precision, data_scale FROM columns"
-            " WHERE owner = ? AND table_name = ? AND UPPER(column_name) = ?",
+            "SELECT data_type, data_length, data_precision, data_scale, char_length"
+            " FROM columns WHERE owner = ? AND table_name = ?"
+            " AND UPPER(column_name) = ?",
             (owner, table, name.upper()),
         ).fetchone()
         if row is None:
@@ -96,6 +97,7 @@ def _mapped_types(
                 row["data_length"],
                 row["data_precision"],
                 row["data_scale"],
+                row["char_length"],
             ).pg_type
         )
     return types

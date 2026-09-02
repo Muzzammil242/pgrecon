@@ -134,7 +134,9 @@ SELECT owner,
        data_length,
        data_precision,
        data_scale,
-       nullable
+       nullable,
+       char_length,
+       char_used
   FROM all_tab_columns
  WHERE owner = UPPER('&schema')
    AND table_name NOT LIKE 'BIN$%'

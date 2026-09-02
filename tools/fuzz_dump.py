@@ -22,6 +22,7 @@ import argparse
 import csv
 import json
 import random
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -57,6 +58,8 @@ HEADERS: dict[str, list[str]] = {
         "DATA_PRECISION",
         "DATA_SCALE",
         "NULLABLE",
+        "CHAR_LENGTH",
+        "CHAR_USED",
     ],
     "source.csv": ["OWNER", "NAME", "TYPE", "LINE", "TEXT"],
     "features.csv": ["FEATURE", "DETAIL", "CNT"],
@@ -346,6 +349,21 @@ def q(name: str) -> str:
     return '"' + name + '"'
 
 
+_DECLARED_WIDTH = re.compile(r"\((\d+)( CHAR| BYTE)?\)")
+
+
+def char_facts(data_type: str, ddl: str) -> tuple[int | None, str | None]:
+    """CHAR_LENGTH and CHAR_USED as the catalog reports them for a
+    string column: the declared width in characters, and B or C."""
+    if data_type not in TEXTUAL:
+        return None, None
+    m = _DECLARED_WIDTH.search(ddl)
+    if m is None:
+        return None, None
+    used = "C" if (m.group(2) or "").strip() == "CHAR" or data_type[0] == "N" else "B"
+    return int(m.group(1)), used
+
+
 def esc(text: str) -> str:
     return text.replace("'", "''")
 
@@ -599,6 +617,7 @@ class Estate:
                 c.precision,
                 c.scale,
                 "Y" if c.nullable else "N",
+                *char_facts(c.data_type, c.ddl),
             )
             if c.data_type in LOBS:
                 lob = f"SYS_LOB{self.sys_counter:07d}C{pos:05d}$$"
@@ -883,6 +902,7 @@ class Estate:
             col.precision,
             col.scale,
             "Y",
+            *char_facts(col.data_type, col.ddl),
         )
         return name
 
@@ -1395,6 +1415,11 @@ class Estate:
                     dtype.precision if dtype else None,
                     dtype.scale if dtype else None,
                     "Y",
+                    *(
+                        char_facts(dtype.data_type, dtype.ddl)
+                        if dtype
+                        else (None, None)
+                    ),
                 )
             iname = f"I_SNAP$_{name}"[:120]
             self.add(

@@ -37,6 +37,10 @@ CREATE TABLE columns (
     data_precision INTEGER,
     data_scale     INTEGER,
     nullable       TEXT,
+    -- Declared width in characters and whether the declaration counted
+    -- bytes (B) or characters (C); PostgreSQL lengths count characters.
+    char_length    INTEGER,
+    char_used      TEXT,
     PRIMARY KEY (owner, table_name, column_name)
 );
 

@@ -1695,3 +1695,40 @@ def test_view_over_a_column_the_table_lacks_declines(facts_db: Path) -> None:
     assert "CREATE OR REPLACE VIEW v_aliased" in result.sql
     reasons = {r.object_name: r.reason for r in result.residue if r.kind == "view"}
     assert "GHOST, which is not a column of EMP" in reasons["V_TORN"]
+
+
+def test_string_widths_count_characters() -> None:
+    # CHAR semantics: the catalog byte length is four times the width.
+    assert map_type("VARCHAR2", 120, None, None, 30).pg_type == "varchar(30)"
+    assert map_type("CHAR", 12, None, None, 3).pg_type == "char(3)"
+    # National types without CHAR_LENGTH (older dumps): UTF-16 bytes.
+    assert map_type("NVARCHAR2", 400, None, None).pg_type == "varchar(200)"
+    assert map_type("NCHAR", 10, None, None).pg_type == "char(5)"
+    assert map_type("NVARCHAR2", 400, None, None, 200).pg_type == "varchar(200)"
+    # BYTE semantics: bytes and characters agree, so nothing changes.
+    assert map_type("VARCHAR2", 30, None, None, 30).pg_type == "varchar(30)"
+
+
+def test_byte_semantics_note_needs_a_multibyte_database(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        UPDATE columns SET char_length = data_length, char_used = 'B'
+         WHERE data_type = 'VARCHAR2';
+        INSERT INTO nls_params (key, value) VALUES ('NLS_CHARACTERSET', 'WE8ISO8859P1');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    assert not [r for r in result.residue if "BYTE semantics" in r.reason]
+    conn = sqlite3.connect(facts_db)
+    conn.execute("UPDATE nls_params SET value = 'AL32UTF8'")
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    notes = [r for r in result.residue if "BYTE semantics" in r.reason]
+    assert {r.object_name for r in notes} == {"DEPT", "EMP"}
+    assert "1 string column(s)" in next(
+        r.reason for r in notes if r.object_name == "EMP"
+    )

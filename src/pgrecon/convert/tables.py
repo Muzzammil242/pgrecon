@@ -64,16 +64,33 @@ def _column_families(
     expression guards."""
     families: dict[str, str] = {}
     for r in conn.execute(
-        "SELECT column_name, data_type, data_length, data_precision, data_scale"
-        " FROM columns WHERE owner = ? AND table_name = ?",
+        "SELECT column_name, data_type, data_length, data_precision, data_scale,"
+        " char_length FROM columns WHERE owner = ? AND table_name = ?",
         (owner, table),
     ):
         mapped = map_type(
-            r["data_type"], r["data_length"], r["data_precision"], r["data_scale"]
+            r["data_type"],
+            r["data_length"],
+            r["data_precision"],
+            r["data_scale"],
+            r["char_length"],
         ).pg_type
         if mapped is not None:
             families[(r["column_name"] or "").upper()] = expression_family(mapped)
     return families
+
+
+_MULTIBYTE_PREFIXES = ("AL32", "AL16", "UTF", "ZHS16", "ZHT16", "JA16", "KO16")
+
+
+def _multibyte_database(conn: sqlite3.Connection) -> bool:
+    """Whether the source character set spends more than one byte on
+    some characters, which is when BYTE-semantics widths bite."""
+    row = conn.execute(
+        "SELECT value FROM nls_params WHERE key = 'NLS_CHARACTERSET'"
+    ).fetchone()
+    charset = (row[0] or "").upper() if row else ""
+    return charset.startswith(_MULTIBYTE_PREFIXES)
 
 
 def _date_columns(conn: sqlite3.Connection, owner: str, table: str) -> set[str]:
@@ -91,7 +108,7 @@ def _date_columns(conn: sqlite3.Connection, owner: str, table: str) -> set[str]:
 def _columns(conn: sqlite3.Connection, owner: str, table: str) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT column_name, data_type, data_length, data_precision,"
-        " data_scale, nullable FROM columns"
+        " data_scale, nullable, char_length, char_used FROM columns"
         " WHERE owner = ? AND table_name = ? ORDER BY position",
         (owner, table),
     ).fetchall()
@@ -156,6 +173,7 @@ def emit_tables(
     tables = conn.execute(
         "SELECT owner, table_name, temporary FROM tables ORDER BY owner, table_name"
     ).fetchall()
+    multibyte = _multibyte_database(conn)
 
     for t in tables:
         owner, table = t["owner"], t["table_name"]
@@ -200,7 +218,11 @@ def emit_tables(
         families = _column_families(conn, owner, table)
         for c in cols:
             mapped = map_type(
-                c["data_type"], c["data_length"], c["data_precision"], c["data_scale"]
+                c["data_type"],
+                c["data_length"],
+                c["data_precision"],
+                c["data_scale"],
+                c["char_length"],
             )
             if mapped.pg_type is None:
                 residue.append(
@@ -373,6 +395,26 @@ def emit_tables(
                 Residue(owner, table, "table", "every column was unconvertible")
             )
             continue
+        byte_sized = [
+            c["column_name"]
+            for c in cols
+            if (c["char_used"] or "").upper() == "B"
+            and (c["data_type"] or "").upper() in ("VARCHAR2", "CHAR", "VARCHAR")
+            and (c["column_name"] or "").upper() in kept_columns
+        ]
+        if byte_sized and multibyte:
+            residue.append(
+                Residue(
+                    owner,
+                    table,
+                    "note",
+                    f"{len(byte_sized)} string column(s) were declared in BYTE"
+                    " semantics; PostgreSQL counts characters, so they accept"
+                    " more text than Oracle did - add CHECK"
+                    " (octet_length(col) <= n) where the byte limit carried"
+                    " meaning",
+                )
+            )
         meta, part_reason = _partition_meta(conn, owner, table)
         if meta is not None:
             # PostgreSQL cannot partition by a generated column, nor by

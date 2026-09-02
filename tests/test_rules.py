@@ -823,6 +823,11 @@ _RULE_FIXTURES = {
         "INSERT INTO plsql_calls (owner, name, type, callee, line) VALUES"
         " ('HR', 'SYNC_IT', 'PROCEDURE', 'REMOTE_PKG.LOG_IT@SALES_LINK', 7)"
     ),
+    "R-TYPE-09": (
+        "INSERT INTO columns (owner, table_name, column_name, data_type, data_length,"
+        " char_length, char_used) VALUES ('HR', 'T', 'NAME', 'VARCHAR2', 30, 30, 'B');"
+        " INSERT INTO nls_params (key, value) VALUES ('NLS_CHARACTERSET', 'AL32UTF8')"
+    ),
 }
 
 

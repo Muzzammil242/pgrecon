@@ -104,7 +104,8 @@ SPOOL OFF
 
 SPOOL columns.csv
 SELECT '"OWNER","TABLE_NAME","COLUMN_NAME","COLUMN_ID","DATA_TYPE",'
-       || '"DATA_LENGTH","DATA_PRECISION","DATA_SCALE","NULLABLE"'
+       || '"DATA_LENGTH","DATA_PRECISION","DATA_SCALE","NULLABLE",'
+       || '"CHAR_LENGTH","CHAR_USED"'
   FROM dual;
 SELECT '"' || owner || '","' || REPLACE(table_name, '"', '""') || '","'
        || REPLACE(column_name, '"', '""') || '",'
@@ -113,7 +114,9 @@ SELECT '"' || owner || '","' || REPLACE(table_name, '"', '""') || '","'
        || NVL(TO_CHAR(data_length), '') || ','
        || NVL(TO_CHAR(data_precision), '') || ','
        || NVL(TO_CHAR(data_scale), '') || ',"'
-       || nullable || '"'
+       || nullable || '",'
+       || NVL(TO_CHAR(char_length), '') || ',"'
+       || NVL(char_used, '') || '"'
   FROM all_tab_columns
  WHERE owner = UPPER('&schema')
    AND table_name NOT LIKE 'BIN$%'

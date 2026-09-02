@@ -95,7 +95,9 @@ def trigger_db(tmp_path: Path) -> Path:
         INSERT INTO objects VALUES ('AX', 'AUDIT_LOG', 'TABLE', 'VALID', NULL, NULL);
         INSERT INTO tables (owner, table_name) VALUES ('AX', 'T_FEES');
         INSERT INTO tables (owner, table_name) VALUES ('AX', 'AUDIT_LOG');
-        INSERT INTO columns VALUES
+        INSERT INTO columns (owner, table_name, column_name, position, data_type,
+                             data_length, data_precision, data_scale, nullable)
+          VALUES
             ('AX', 'T_FEES', 'FEE', 1, 'NUMBER', 22, 10, 2, 'Y'),
             ('AX', 'T_FEES', 'TAG', 2, 'VARCHAR2', 30, NULL, NULL, 'Y'),
             ('AX', 'AUDIT_LOG', 'AUDIT_ID', 1, 'NUMBER', 22, 10, 0, 'Y');
