@@ -45,20 +45,20 @@ schema (see [examples/dump_oracle21c](examples/dump_oracle21c)):
 
 Output (excerpt):
 
-    high    R-OBJ-01   LOOPBACK           to //localhost:1521/XEPDB1 as RECON_TEST
-    high    R-PART-01  SALES              INTERVAL NUMTOYMINTERVAL(1, 'MONTH')
-    high    R-PERF-02  SALES_AMOUNT_GIX   GLOBAL partitioned index on SALES
-    high    R-PKG-01   PKG_LEDGER         2 package-level declaration(s), first at line 2
-    high    R-PKG-01   PKG_LEDGER (body)  1 package-level declaration(s), first at line 2
-    high    R-SYS-01   ARCHIVE_NOTES      UTL_FILE (first at line 16)
-    high    R-TRG-02   TRG_EMP_AUDIT      PRAGMA AUTONOMOUS_TRANSACTION (first at line 5)
-    high    R-TYPE-01  LEGACY_NOTES.BODY  LONG
-    high    R-TYPE-07  LEGACY_REFS.SCAN_DOC  BFILE
-    medium  R-SRC-18   ARCHIVE_NOTES      empty-string literal (first at line 4)
-    medium  R-SRC-19   ARCHIVE_NOTES      ROWID (first at line 3)
+    high    R-OBJ-01   LOOPBACK                    to //localhost:1521/XEPDB1 as RECON_TEST
+    high    R-PART-01  SALES                       INTERVAL NUMTOYMINTERVAL(1, 'MONTH')
+    high    R-PERF-02  SALES_AMOUNT_GIX            GLOBAL partitioned index on SALES
+    high    R-PKG-01   PKG_LEDGER                  2 package-level declaration(s), first at line 2
+    high    R-PKG-01   PKG_LEDGER (body)           1 package-level declaration(s), first at line 2
+    high    R-SYS-01   ARCHIVE_NOTES               UTL_FILE (first at line 16)
+    high    R-TRG-01   TRG_EMP_SAL_GUARD           on EMP
+    high    R-TRG-02   TRG_EMP_AUDIT               PRAGMA AUTONOMOUS_TRANSACTION (first at line 5)
+    high    R-TYPE-01  LEGACY_NOTES.BODY           LONG
+    high    R-TYPE-07  LEGACY_REFS.SCAN_DOC        BFILE
+    medium  R-OBJ-02   NIGHTLY_ROLLUP              scheduler job
     ...
 
-    56 findings (10 high, 18 medium, 15 low, 13 info); effort points 76.7
+    57 findings (10 high, 18 medium, 16 low, 13 info); effort points 77.2
 
 Add `--remedies` to append what to do about each fired rule, or ask
 about one directly: `uv run pgrecon explain R-PKG-01`.
@@ -102,8 +102,8 @@ warning in the inventory. A bad code page never crashes a load.
 
 | Source version     | Script                    | Status |
 | ------------------ | ------------------------- | ------ |
-| 11.2 and later     | `pgrecon script`          | Tested against Oracle XE 11g and 21c |
-| 9.2 through 11.1   | `pgrecon script --legacy` | Best effort; validated by design, not by container |
+| 11.2 and later     | `pgrecon script`          | Verified nightly in CI against Oracle XE 21c and Oracle Free 23ai |
+| 9.2 through 11.1   | `pgrecon script --legacy` | Script verified nightly in CI against Oracle XE 11g; 9.2 to 11.1 servers by design, no containers exist |
 
 The standard script needs a 12.2 or newer SQL*Plus client. The legacy
 variant runs on the old sqlplus already sitting on the database host:
@@ -152,13 +152,13 @@ a rules map for integrations.
 
       baseline and environment       5.0
       schema conversion              1.7
-      finding remediation           73.3
+      finding remediation           73.8
       PL/SQL porting by volume       0.8
       data movement                  0.0
-      development subtotal          80.7
+      development subtotal          81.2
 
     With testing and stabilization:
-      low 105, expected 129, high 178 person-days (5.0 to 8.5 person-months)
+      low 106, expected 130, high 179 person-days (5.0 to 8.5 person-months)
 
 The estimate is a sum of named components, so it can be argued with
 line by line, and it is a range, because a point estimate for a

@@ -2,6 +2,26 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## Unreleased
+
+- The full Oracle loop runs in CI, nightly and on any change to the
+  extraction path: Oracle XE 11g (legacy script), XE 21c, and Oracle
+  Free 23ai start inside the job, take the synthetic estate, run the
+  packaged extraction script, and hand the dump to load, convert, and
+  a live PostgreSQL apply. Two guards fail the run on a spool that
+  carries a server error or a load that had to degrade rows. 23ai is
+  verified for the first time; the legacy tier is verified on every
+  run instead of once per lab session.
+- The live-apply job proves the bundled sample on PostgreSQL 16, 17,
+  and 18 on every commit, with check_function_bodies set explicitly.
+- Every rule has a fixture test; fifteen that were exercised nowhere
+  gained minimal inventories. The bundled sample's headline numbers
+  are asserted so they cannot drift between releases.
+- The bundled example dump is regenerated from the Oracle-loop job:
+  35 spool files including grants, comments, character set, license
+  posture, feature usage, partition bounds, sequences, and column
+  defaults. Expected result moves to 57 findings and 77.2 points.
+
 ## 0.6.0 - 2026-08-27
 
 - Privileges and documentation travel with the schema. The extraction

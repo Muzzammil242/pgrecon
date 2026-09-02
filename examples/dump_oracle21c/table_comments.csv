@@ -1,0 +1,3 @@
+
+"OWNER","TABLE_NAME","COMMENTS"
+"RECON_TEST","EMP","Employees, self-referencing via mgr"

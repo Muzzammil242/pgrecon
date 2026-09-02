@@ -3,7 +3,8 @@
 `dump_oracle21c/` is a real dump: the packaged extraction script
 (`src/pgrecon/extract/pgrecon_extract.sql`) run by SQL*Plus against an
 Oracle XE 21c instance (gvenzl/oracle-xe:21 container), spooling the
-RECON_TEST schema. The files are byte-for-byte what SQL*Plus produced,
+RECON_TEST schema. The Oracle-loop CI job regenerates it nightly, so
+the bundled files track the current extraction script. The files are byte-for-byte what SQL*Plus produced,
 including the blank line that opens every spool.
 
 The schema behind it is `tests/fixtures/synthetic/synthetic_schema.sql`,
@@ -23,4 +24,4 @@ Load and assess it without any Oracle installation:
     uv run pgrecon load examples/dump_oracle21c --db sample.db
     uv run pgrecon report --db sample.db
 
-Expected result: 33 objects, 56 findings, effort points 76.7.
+Expected result: 33 objects, 57 findings, effort points 77.2.
