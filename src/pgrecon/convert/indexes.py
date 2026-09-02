@@ -6,6 +6,7 @@ from pgrecon.convert.identifiers import (
     _date_function_guard,
     _default_guard,
     _fold_expression,
+    _referenced_columns,
     _type_mismatch_guard,
     ident,
     over_limit,
@@ -110,6 +111,14 @@ def _emit_indexes(
                     skip_reason = guard or (
                         "index expression could not be translated;"
                         " recreate it from the source"
+                    )
+                    break
+                present = {k.upper() for k in emitted[(r["owner"], r["table_name"])]}
+                unknown = sorted((_referenced_columns(folded) or set()) - present)
+                if unknown:
+                    skip_reason = (
+                        f"index expression references {unknown[0]}, which is not"
+                        " a column of the converted table"
                     )
                     break
                 parts.append(f"({folded})")

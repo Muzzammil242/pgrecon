@@ -73,6 +73,15 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   decline, since the mapped types have no btree operator class, and a
   unique index on a partitioned table declines unless it carries
   every partition key column.
+- The top-N idiom converts: a ROWNUM bound that is a plain conjunct
+  of a query's WHERE becomes LIMIT on that query, in views and
+  materialized views; ROWNUM beside ORDER BY in the same query,
+  projected, or compared with a column declines by name. Cursor FOR
+  loops in converted routines get their loop variable declared as a
+  record, which PL/pgSQL requires and Oracle did by itself. TRUNC and
+  ROUND over a text column decline; an index expression naming a
+  column the table does not have declines; a grant option to PUBLIC
+  is dropped with a note, since PostgreSQL grants options to roles.
 - The bundled example dump is regenerated from the Oracle-loop job:
   35 spool files including grants, comments, character set, license
   posture, feature usage, partition bounds, sequences, and column

@@ -1038,13 +1038,14 @@ class Estate:
                     self.add(
                         "index_columns.csv", OWNER, iname, f"SYS_NC0000{pos}$", pos
                     )
+                    torn = rng.random() < 0.1
                     self.add(
                         "index_expressions.csv",
                         OWNER,
                         iname,
                         pos,
-                        expr[:6] if rng.random() < 0.1 else expr,
-                        1 if rng.random() < 0.1 else 0,
+                        expr[:6] if torn else expr,
+                        1 if torn else 0,
                     )
                 else:
                     self.add("index_columns.csv", OWNER, iname, c.name, pos)
@@ -1269,11 +1270,21 @@ class Estate:
                     deps,
                 )
         if roll < 0.58:
+            # The hierarchy joins the key to a column of its own family.
+            mate = next(
+                (
+                    c
+                    for c in base.columns[1:]
+                    if (c.data_type in NUMERIC) == (c1.data_type in NUMERIC)
+                    and (c.data_type in TEXTUAL) == (c1.data_type in TEXTUAL)
+                ),
+                c2,
+            )
             return (
                 [c1.name, "LVL"],
                 f"SELECT {q(c1.name)}, LEVEL AS LVL\n  FROM {t}\n"
-                f" START WITH {q(c2.name)} IS NULL\n"
-                f" CONNECT BY PRIOR {q(c1.name)} = {q(c2.name)}",
+                f" START WITH {q(mate.name)} IS NULL\n"
+                f" CONNECT BY PRIOR {q(c1.name)} = {q(mate.name)}",
                 deps,
             )
         if roll < 0.66:

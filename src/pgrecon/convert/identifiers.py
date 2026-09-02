@@ -534,10 +534,12 @@ def _type_mismatch_guard(folded: str, families: dict[str, str]) -> str | None:
         return None
     for node in tree.walk():
         name = _func_name(node)
-        if name in _TEXT_FUNCS or name in _NUMBER_FUNCS:
+        if name in _TEXT_FUNCS or name in _NUMBER_FUNCS or name in ("TRUNC", "ROUND"):
             first = _first_argument(node)
             family = _family_of(first, families) if first is not None else None
             wanted = "text" if name in _TEXT_FUNCS else "number"
+            if name in ("TRUNC", "ROUND") and family == "datetime":
+                continue  # the date guard owns that case
             if (
                 isinstance(first, exp.Column)
                 and family is not None

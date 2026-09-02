@@ -17,7 +17,7 @@ from sqlglot.transforms import eliminate_join_marks
 from pgrecon.convert.identifiers import _fold_identifiers, ident
 from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
-from pgrecon.convert.views import _view_guard
+from pgrecon.convert.views import _fold_rownum, _view_guard
 from pgrecon.inventory.loader import PARSE_NORMALIZATIONS
 
 
@@ -81,6 +81,10 @@ def _emit_mviews(
             tree = parsed[0] if parsed else None
             if tree is None:
                 raise SqlglotError("query did not parse")
+            rownum_reason = _fold_rownum(tree)
+            if rownum_reason is not None:
+                residue.append(Residue(owner, raw, "materialized view", rownum_reason))
+                continue
             tree = eliminate_join_marks(tree)
             tree = _fold_identifiers(tree)
             statement = tree.sql(

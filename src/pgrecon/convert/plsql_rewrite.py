@@ -79,6 +79,9 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
         self.relations = relations
         self.procedures = procedures
         self.edits: list[tuple[int, int, str]] = []
+        # Loop variables of cursor FOR loops, which Oracle declares by
+        # itself and PL/pgSQL wants declared as records.
+        self.records: list[str] = []
         self.reasons: list[str] = []
         self.notes: list[str] = []
         self.suppressed: list[tuple[int, int]] = []
@@ -198,6 +201,13 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
                 ctx,
                 "cursor parameter defaults are not supported; pass the value at OPEN",
             )
+
+    def enterCursor_loop_param(self, ctx: Any) -> None:
+        record = ctx.record_name()
+        if record is not None:
+            name = _fold_written(self._span_text(record))
+            if name not in self.records:
+                self.records.append(name)
 
     # -- declarations -----------------------------------------------
 
@@ -746,7 +756,8 @@ def rewrite_unit(
     while delimiter in edited:
         delimiter = delimiter[:-1] + "_$"
     opener = f"LANGUAGE plpgsql\nAS {delimiter}\n"
-    if rewriter.declares:
-        opener += "DECLARE"
+    records = "".join(f"\n  {name} record;" for name in rewriter.records)
+    if rewriter.declares or records:
+        opener += "DECLARE" + records
     edited = edited.replace(_BODY_OPEN, opener, 1)
     return RewriteResult(edited.rstrip() + f"\n{delimiter};", (), notes)

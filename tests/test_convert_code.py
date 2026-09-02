@@ -266,6 +266,8 @@ def test_happy_function_converts_mechanically(code_db: Path) -> None:
     assert "RAISE NOTICE '%'," in sql
     assert "c_fees CURSOR" in sql and "CURSOR c_fees" not in sql
     assert "FOR SELECT fee" in sql
+    # The cursor FOR loop's variable, which Oracle declares by itself.
+    assert "DECLARE\n  r record;" in sql
     assert "unique_violation" in sql
     assert "DUP_VAL_ON_INDEX" not in sql
     assert "t_fees.tag%TYPE" in sql

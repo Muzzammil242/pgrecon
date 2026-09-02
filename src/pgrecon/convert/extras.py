@@ -364,6 +364,18 @@ def _emit_grants(
             continue
         target = "PUBLIC" if grantee == "PUBLIC" else ident(r["grantee"] or "")
         option = " WITH GRANT OPTION" if (r["grantable"] or "").upper() == "YES" else ""
+        if option and target == "PUBLIC":
+            # PostgreSQL grants options to roles only.
+            option = ""
+            residue.append(
+                Residue(
+                    r["owner"],
+                    f"{name}.{priv}->PUBLIC",
+                    "note",
+                    "grant option to PUBLIC dropped; PostgreSQL grants options"
+                    " to roles only",
+                )
+            )
         out.append(f"GRANT {mapped} ON {kind}{ident(raw)} TO {target}{option};")
         count += 1
     if count or grantees:

@@ -1576,3 +1576,80 @@ def test_unique_index_on_partitioned_table_needs_the_key(parts_db: Path) -> None
     assert "part_uq_bad" not in result.sql
     reasons = {r.object_name: r.reason for r in result.residue}
     assert "every partition key; CODE is missing" in reasons["PART_UQ_BAD"]
+
+
+def test_rownum_top_n_becomes_limit_or_declines(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality) VALUES
+          ('HR', 'V_TOP', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_TOP" AS SELECT "EMP_ID" FROM'
+           || ' (SELECT "EMP_ID" FROM "HR"."EMP" ORDER BY "SALARY" DESC)'
+           || ' WHERE ROWNUM <= 5', 1, 'full'),
+          ('HR', 'V_FIRST', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_FIRST" AS SELECT "EMP_ID" FROM "HR"."EMP"'
+           || ' WHERE "SALARY" > 0 AND ROWNUM < 2', 1, 'full'),
+          ('HR', 'V_SORTED_ROWNUM', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_SORTED_ROWNUM" AS SELECT "EMP_ID"'
+           || ' FROM "HR"."EMP" WHERE ROWNUM <= 5 ORDER BY "SALARY"', 1, 'full'),
+          ('HR', 'V_ROWNUM_COL', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_ROWNUM_COL" AS SELECT ROWNUM AS RN,'
+           || ' "EMP_ID" FROM "HR"."EMP"', 1, 'full');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    sql = result.sql
+    top = sql[sql.index("CREATE OR REPLACE VIEW v_top") :].split(";")[0]
+    assert "LIMIT 5" in top and "rownum" not in top.lower()
+    first = sql[sql.index("CREATE OR REPLACE VIEW v_first") :].split(";")[0]
+    assert "salary > 0" in first and "LIMIT 1" in first
+    assert "rownum" not in first.lower()
+    reasons = {r.object_name: r.reason for r in result.residue if r.kind == "view"}
+    assert "sort in a subquery" in reasons["V_SORTED_ROWNUM"]
+    assert "outside a top-N bound" in reasons["V_ROWNUM_COL"]
+
+
+def test_public_grant_option_is_dropped_with_a_note(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.execute(
+        "INSERT INTO grants (grantee, owner, table_name, privilege, grantable)"
+        " VALUES ('PUBLIC', 'HR', 'DEPT', 'SELECT', 'YES')"
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    assert "GRANT SELECT ON dept TO PUBLIC;" in result.sql
+    assert "TO PUBLIC WITH GRANT OPTION" not in result.sql
+    assert any("grant option to PUBLIC dropped" in r.reason for r in result.residue)
+
+
+def test_index_expression_over_unknown_column_declines(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO indexes (owner, index_name, table_name, index_type, uniqueness,
+                             generated)
+          VALUES ('HR', 'EMP_TORN_IX', 'EMP', 'FUNCTION-BASED NORMAL', 'NONUNIQUE',
+                  'N'),
+                 ('HR', 'EMP_TRUNC_TEXT_IX', 'EMP', 'FUNCTION-BASED NORMAL',
+                  'NONUNIQUE', 'N');
+        INSERT INTO index_columns (owner, index_name, column_name, position)
+          VALUES ('HR', 'EMP_TORN_IX', 'SYS_NC00012$', 1),
+                 ('HR', 'EMP_TRUNC_TEXT_IX', 'SYS_NC00013$', 1);
+        INSERT INTO index_expressions (owner, index_name, position, expression,
+                                       truncated)
+          VALUES ('HR', 'EMP_TORN_IX', 1, 'SYS_OP', 0),
+                 ('HR', 'EMP_TRUNC_TEXT_IX', 1, 'TRUNC("ENAME")', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    assert "emp_torn_ix" not in result.sql
+    assert "emp_trunc_text_ix" not in result.sql
+    reasons = {r.object_name: r.reason for r in result.residue}
+    assert "references SYS_OP, which is not a column" in reasons["EMP_TORN_IX"]
+    assert "TRUNC over text column ENAME" in reasons["EMP_TRUNC_TEXT_IX"]

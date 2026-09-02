@@ -24,6 +24,53 @@ _OBJECT_VIEW = re.compile(r"\bVIEW\s+\"?[^\s(]+\s+OF\s", re.IGNORECASE)
 _JSON_TABLE = re.compile(r"\bJSON_TABLE\s*\(", re.IGNORECASE)
 
 
+def _fold_rownum(tree: Expr) -> str | None:
+    """Turn the top-N idiom into LIMIT, or say why the query cannot be.
+
+    Oracle numbers rows before ORDER BY, so the faithful shape is a
+    ROWNUM predicate over a sorted subquery; that predicate, as a
+    conjunct of its query's WHERE with a literal bound, becomes LIMIT
+    on that query. ROWNUM anywhere else - projected, compared with a
+    column, under OR, or beside an ORDER BY in the same query - has
+    no mechanical equal and declines by name.
+    """
+    rownums = [c for c in list(tree.find_all(exp.Column)) if c.name.upper() == "ROWNUM"]
+    for column in rownums:
+        comparison = column.parent
+        if not isinstance(comparison, exp.LTE | exp.LT | exp.EQ):
+            return "uses ROWNUM outside a top-N bound; rewrite by hand"
+        other = comparison.expression if comparison.this is column else comparison.this
+        if not (isinstance(other, exp.Literal) and not other.is_string):
+            return "compares ROWNUM with something other than a number; rewrite by hand"
+        bound = int(float(other.this))
+        if isinstance(comparison, exp.LT):
+            bound -= 1
+        elif isinstance(comparison, exp.EQ) and bound != 1:
+            return "ROWNUM = n with n above 1 never matches; rewrite by hand"
+        node: Expr = comparison
+        while isinstance(node.parent, exp.And):
+            node = node.parent
+        where = node.parent
+        if not isinstance(where, exp.Where) or not isinstance(where.parent, exp.Select):
+            return "uses ROWNUM outside a plain WHERE conjunction; rewrite by hand"
+        select = where.parent
+        if select.args.get("order") is not None:
+            return (
+                "ROWNUM beside ORDER BY in the same query is not top-N on"
+                " Oracle either; sort in a subquery, then bound, by hand"
+            )
+        if select.args.get("limit") is not None:
+            return "uses ROWNUM twice; rewrite by hand"
+        parent = comparison.parent
+        if isinstance(parent, exp.And):
+            sibling = parent.expression if parent.this is comparison else parent.this
+            parent.replace(sibling)
+        else:
+            select.set("where", None)
+        select.limit(bound, copy=False)
+    return None
+
+
 def _view_guard(
     tree: Expr,
     view_name: str,
@@ -306,6 +353,10 @@ def _emit_views(
             tree = parsed[0] if parsed else None
             if tree is None:
                 raise SqlglotError("statement did not parse")
+            rownum_reason = _fold_rownum(tree)
+            if rownum_reason is not None:
+                residue.append(Residue(r["owner"], name, "view", rownum_reason))
+                continue
             # The generator passes some Oracle-only constructs through
             # verbatim instead of flagging them; wrong DDL must become
             # residue, never output, so the tree is checked explicitly.
