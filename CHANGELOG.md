@@ -2,7 +2,7 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
-## Unreleased
+## 0.7.0 - 2026-09-03
 
 - The full Oracle loop runs in CI, nightly and on any change to the
   extraction path: Oracle XE 11g (legacy script), XE 21c, and Oracle
