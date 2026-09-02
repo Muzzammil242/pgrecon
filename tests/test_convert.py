@@ -1495,3 +1495,84 @@ def test_mview_whose_query_does_not_fit_its_container_declines(
     }
     assert "yields 3 columns but the container has 2" in reasons["MV_WIDE"]
     assert "two output columns alike" in reasons["MV_TWICE"]
+
+
+def test_implicit_conversions_and_btree_less_types_decline(tmp_path: Path) -> None:
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary) VALUES ('HR', 'DOCS', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'DOCS', 'ID',    1, 'NUMBER',   22, 10, 0, 'N'),
+          ('HR', 'DOCS', 'TITLE', 2, 'VARCHAR2', 80, NULL, NULL, 'Y'),
+          ('HR', 'DOCS', 'BODY',  3, 'XMLTYPE',  2000, NULL, NULL, 'Y'),
+          ('HR', 'DOCS', 'RAWID', 4, 'RAW',      16, NULL, NULL, 'Y'),
+          ('HR', 'DOCS', 'BAND',  5, 'NUMBER',   22, 3, 0, 'Y');
+        INSERT INTO constraints (owner, constraint_name, table_name, type) VALUES
+          ('HR', 'DOCS_PK', 'DOCS', 'P'),
+          ('HR', 'DOCS_BODY_UK', 'DOCS', 'U'),
+          ('HR', 'DOCS_TITLE_CK', 'DOCS', 'C'),
+          ('HR', 'DOCS_BAND_CK', 'DOCS', 'C');
+        INSERT INTO constraint_columns (owner, constraint_name, column_name, position)
+          VALUES ('HR', 'DOCS_PK', 'ID', 1), ('HR', 'DOCS_BODY_UK', 'BODY', 1);
+        INSERT INTO check_conditions (owner, constraint_name, condition, truncated)
+          VALUES ('HR', 'DOCS_TITLE_CK', 'NVL("TITLE", 0) <> 0', 0),
+                 ('HR', 'DOCS_BAND_CK', 'NVL("BAND", 0) >= 0', 0);
+        INSERT INTO indexes (owner, index_name, table_name, index_type, uniqueness,
+                             generated) VALUES
+          ('HR', 'DOCS_BODY_IX', 'DOCS', 'NORMAL', 'NONUNIQUE', 'N'),
+          ('HR', 'DOCS_UPPER_ID_IX', 'DOCS', 'FUNCTION-BASED NORMAL', 'NONUNIQUE', 'N'),
+          ('HR', 'DOCS_UPPER_TITLE_IX', 'DOCS', 'FUNCTION-BASED NORMAL', 'NONUNIQUE',
+           'N');
+        INSERT INTO index_columns (owner, index_name, column_name, position) VALUES
+          ('HR', 'DOCS_BODY_IX', 'BODY', 1),
+          ('HR', 'DOCS_UPPER_ID_IX', 'SYS_NC00006$', 1),
+          ('HR', 'DOCS_UPPER_TITLE_IX', 'SYS_NC00007$', 1);
+        INSERT INTO index_expressions (owner, index_name, position, expression,
+                                       truncated) VALUES
+          ('HR', 'DOCS_UPPER_ID_IX', 1, 'UPPER("ID")', 0),
+          ('HR', 'DOCS_UPPER_TITLE_IX', 1, 'UPPER("TITLE")', 0);
+        INSERT INTO column_defaults (owner, table_name, column_name, default_text,
+                                     virtual, truncated)
+          VALUES ('HR', 'DOCS', 'RAWID', 'HEXTORAW(''FF'')', 'NO', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(db)
+    sql = result.sql
+    assert "rawid bytea DEFAULT DECODE('FF', 'hex')" in sql
+    assert "ADD CONSTRAINT docs_band_ck CHECK (COALESCE(band, 0) >= 0);" in sql
+    assert "CREATE INDEX docs_upper_title_ix ON docs ((UPPER(title)));" in sql
+    for gone in ("docs_body_uk", "docs_title_ck", "docs_body_ix", "docs_upper_id_ix"):
+        assert gone not in sql
+    reasons = {r.object_name: r.reason for r in result.residue}
+    assert "no btree operator class" in reasons["DOCS_BODY_UK"]
+    assert "no btree operator class" in reasons["DOCS_BODY_IX"]
+    assert "UPPER over number column ID" in reasons["DOCS_UPPER_ID_IX"]
+    assert "COALESCE mixes number and text" in reasons["DOCS_TITLE_CK"]
+
+
+def test_unique_index_on_partitioned_table_needs_the_key(parts_db: Path) -> None:
+    conn = sqlite3.connect(parts_db)
+    conn.executescript(
+        """
+        INSERT INTO indexes (owner, index_name, table_name, index_type, uniqueness,
+                             generated) VALUES
+          ('HR', 'PART_UQ_BAD', 'LH', 'NORMAL', 'UNIQUE', 'N'),
+          ('HR', 'PART_UQ_GOOD', 'LH', 'NORMAL', 'UNIQUE', 'N');
+        INSERT INTO index_columns (owner, index_name, column_name, position) VALUES
+          ('HR', 'PART_UQ_BAD', 'ID', 1),
+          ('HR', 'PART_UQ_GOOD', 'ID', 1), ('HR', 'PART_UQ_GOOD', 'CODE', 2);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(parts_db)
+    assert "CREATE UNIQUE INDEX part_uq_good ON lh (id, code);" in result.sql
+    assert "part_uq_bad" not in result.sql
+    reasons = {r.object_name: r.reason for r in result.residue}
+    assert "every partition key; CODE is missing" in reasons["PART_UQ_BAD"]

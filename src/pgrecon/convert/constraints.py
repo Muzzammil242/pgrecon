@@ -8,13 +8,14 @@ from pgrecon.convert.identifiers import (
     _default_guard,
     _fold_condition,
     _referenced_columns,
+    _type_mismatch_guard,
     ident,
     over_limit,
 )
 from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
-from pgrecon.convert.tables import _date_columns
-from pgrecon.convert.typemap import fk_compatible, map_type
+from pgrecon.convert.tables import _column_families, _date_columns
+from pgrecon.convert.typemap import fk_compatible, indexable, map_type
 
 _NOT_NULL_CONDITION = re.compile(
     r'^"?[A-Za-z0-9_$#]+"?\s+IS\s+NOT\s+NULL$', re.IGNORECASE
@@ -43,6 +44,14 @@ def _constraint_guard(
     missing = [c for c in raw_columns if c.upper() not in emitted[(owner, table)]]
     if missing:
         return f"column {missing[0]} was not converted"
+    for col, pg_type in zip(
+        raw_columns, _mapped_types(conn, owner, table, raw_columns), strict=True
+    ):
+        if pg_type is not None and not indexable(pg_type):
+            return (
+                f"column {col} lands as {pg_type}, which has no btree operator"
+                " class and cannot be a key on PostgreSQL"
+            )
     if unique:
         part_keys = [
             (r["column_name"] or "").upper()
@@ -310,6 +319,9 @@ def _emit_checks(
             else _default_guard(folded)
             or _date_function_guard(
                 folded, _date_columns(conn, r["owner"], r["table_name"])
+            )
+            or _type_mismatch_guard(
+                folded, _column_families(conn, r["owner"], r["table_name"])
             )
         )
         if folded is None or date_guard is not None:

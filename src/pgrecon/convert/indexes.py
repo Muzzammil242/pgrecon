@@ -6,12 +6,14 @@ from pgrecon.convert.identifiers import (
     _date_function_guard,
     _default_guard,
     _fold_expression,
+    _type_mismatch_guard,
     ident,
     over_limit,
 )
 from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
-from pgrecon.convert.tables import _date_columns
+from pgrecon.convert.tables import _column_families, _date_columns
+from pgrecon.convert.typemap import UNINDEXABLE
 
 
 def _emit_indexes(
@@ -82,7 +84,9 @@ def _emit_indexes(
             )
         }
         parts: list[str] = []
+        plain: list[str] = []
         skip_reason: str | None = None
+        families = _column_families(conn, r["owner"], r["table_name"])
         for c in cols:
             expression, truncated = exprs.get(c["position"], (None, 0))
             if expression:
@@ -100,6 +104,7 @@ def _emit_indexes(
                     or _date_function_guard(
                         folded, _date_columns(conn, r["owner"], r["table_name"])
                     )
+                    or _type_mismatch_guard(folded, families)
                 )
                 if folded is None or guard is not None:
                     skip_reason = guard or (
@@ -119,8 +124,34 @@ def _emit_indexes(
             }:
                 skip_reason = f"column {c['column_name']} was not converted"
                 break
+            elif families.get((c["column_name"] or "").upper()) in UNINDEXABLE:
+                skip_reason = (
+                    f"column {c['column_name']} lands as"
+                    f" {families[(c['column_name'] or '').upper()]}, which has no"
+                    " btree operator class; index an expression over it by hand"
+                )
+                break
             else:
                 parts.append(ident(c["column_name"]))
+                plain.append((c["column_name"] or "").upper())
+        if skip_reason is None and (r["uniqueness"] or "").upper() == "UNIQUE":
+            # A unique index on a partitioned table must carry every
+            # partition key column, as a plain column.
+            part_keys = [
+                (k["column_name"] or "").upper()
+                for k in conn.execute(
+                    "SELECT column_name FROM part_key_columns"
+                    " WHERE owner = ? AND table_name = ?",
+                    (r["owner"], r["table_name"]),
+                )
+            ]
+            uncovered = [k for k in part_keys if k not in plain]
+            if uncovered:
+                skip_reason = (
+                    "PostgreSQL requires a unique index on a partitioned table"
+                    f" to include every partition key; {uncovered[0]} is"
+                    " missing - widen the index or enforce uniqueness another way"
+                )
         if skip_reason is not None or not parts:
             residue.append(
                 Residue(

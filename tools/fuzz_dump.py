@@ -1249,16 +1249,25 @@ class Estate:
                 deps,
             )
         if roll < 0.50 and len(self.tables) > 1:
+            # Join columns of one family; Oracle rejects the rest too.
             other = rng.choice(self.tables)
-            deps.append((other.name, "TABLE"))
-            o1 = other.columns[0]
-            return (
-                ["A_COL", "B_COL"],
-                f"SELECT a.{q(c1.name)} AS A_COL, b.{q(o1.name)} AS B_COL\n"
-                f"  FROM {t} a, {q(other.name)} b\n"
-                f" WHERE a.{q(c1.name)} = b.{q(o1.name)} (+)",
-                deps,
-            )
+            pair = None
+            for family in (NUMERIC, TEXTUAL, {"DATE"}):
+                left = base.column(family)
+                right = other.column(family)
+                if left and right:
+                    pair = (left, right)
+                    break
+            if pair is not None:
+                deps.append((other.name, "TABLE"))
+                left, right = pair
+                return (
+                    ["A_COL", "B_COL"],
+                    f"SELECT a.{q(left.name)} AS A_COL, b.{q(right.name)} AS B_COL\n"
+                    f"  FROM {t} a, {q(other.name)} b\n"
+                    f" WHERE a.{q(left.name)} = b.{q(right.name)} (+)",
+                    deps,
+                )
         if roll < 0.58:
             return (
                 [c1.name, "LVL"],

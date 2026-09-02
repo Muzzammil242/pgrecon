@@ -245,6 +245,25 @@ def _fold_identifiers(tree: Expr) -> Expr:
     The concat call is emitted anonymously because sqlglot renders its
     own Concat node back to || on the postgres dialect.
     """
+    # Oracle's raw conversions have PostgreSQL spellings.
+    for node in list(tree.walk()):
+        if not isinstance(node, exp.Anonymous) or not node.expressions:
+            continue
+        name = str(node.this).upper()
+        if name == "HEXTORAW":
+            node.replace(
+                exp.Anonymous(
+                    this="decode",
+                    expressions=[node.expressions[0], exp.Literal.string("hex")],
+                )
+            )
+        elif name == "RAWTOHEX":
+            node.replace(
+                exp.Anonymous(
+                    this="encode",
+                    expressions=[node.expressions[0], exp.Literal.string("hex")],
+                )
+            )
     # Oracle's USER is a function spelled like a column; a column that
     # is really named USER arrives quoted from the catalog and stays.
     # It runs before the fold, which would quote the reserved word.
@@ -462,6 +481,85 @@ def _date_function_guard(folded: str, date_columns: set[str]) -> str | None:
                 f"{name} over a date expression has no PostgreSQL counterpart;"
                 " use date_trunc by hand"
             )
+    return None
+
+
+_TEXT_FUNCS = {
+    "UPPER",
+    "LOWER",
+    "INITCAP",
+    "TRIM",
+    "LTRIM",
+    "RTRIM",
+    "LENGTH",
+    "SUBSTR",
+    "SUBSTRING",
+    "INSTR",
+    "STRPOS",
+    "REPLACE",
+    "LPAD",
+    "RPAD",
+    "TRANSLATE",
+    "REGEXP_LIKE",
+    "REGEXP_REPLACE",
+    "REGEXP_SUBSTR",
+}
+_NUMBER_FUNCS = {"ABS", "FLOOR", "CEIL", "CEILING", "MOD", "POWER", "SQRT", "SIGN"}
+
+
+def _first_argument(node: Expr) -> Expr | None:
+    if isinstance(node, exp.Anonymous):
+        return node.expressions[0] if node.expressions else None
+    return node.args.get("this")
+
+
+def _family_of(node: Expr, families: dict[str, str]) -> str | None:
+    if isinstance(node, exp.Column):
+        return families.get(node.name.upper())
+    if isinstance(node, exp.Literal):
+        return "text" if node.is_string else "number"
+    return None
+
+
+def _type_mismatch_guard(folded: str, families: dict[str, str]) -> str | None:
+    """Why an expression leans on Oracle's implicit conversions, or None.
+
+    Oracle upper-cases a NUMBER and coalesces a VARCHAR2 with 0 by
+    converting silently; PostgreSQL refuses both. The callers pass the
+    table's column families so the expression is checked where the
+    types are known, and declines by name instead of shipping.
+    """
+    tree = _reparse(folded)
+    if tree is None:
+        return None
+    for node in tree.walk():
+        name = _func_name(node)
+        if name in _TEXT_FUNCS or name in _NUMBER_FUNCS:
+            first = _first_argument(node)
+            family = _family_of(first, families) if first is not None else None
+            wanted = "text" if name in _TEXT_FUNCS else "number"
+            if (
+                isinstance(first, exp.Column)
+                and family is not None
+                and family != wanted
+            ):
+                return (
+                    f"{name} over {family} column {first.name.upper()} relies on"
+                    " Oracle's implicit conversion; cast it explicitly by hand"
+                )
+        if isinstance(node, exp.Coalesce):
+            seen = {
+                f
+                for f in (
+                    _family_of(arg, families) for arg in [node.this, *node.expressions]
+                )
+                if f is not None
+            }
+            if len(seen) > 1:
+                return (
+                    "COALESCE mixes " + " and ".join(sorted(seen)) + "; Oracle"
+                    " converted implicitly, PostgreSQL will not - cast by hand"
+                )
     return None
 
 

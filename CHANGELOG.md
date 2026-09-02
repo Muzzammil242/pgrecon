@@ -65,6 +65,14 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   column, and materialized views whose container repeats a column
   name; a multi-column range partition now bounds every key column
   in its floors and its open upper bound.
+- Expressions that lean on Oracle's implicit conversions decline where
+  the column types are known: UPPER over a NUMBER, NVL of a VARCHAR2
+  with 0, and their kin in defaults, virtual columns, index
+  expressions, and check conditions. HEXTORAW and RAWTOHEX become
+  decode and encode. Indexes and keys over XMLTYPE or JSON columns
+  decline, since the mapped types have no btree operator class, and a
+  unique index on a partitioned table declines unless it carries
+  every partition key column.
 - The bundled example dump is regenerated from the Oracle-loop job:
   35 spool files including grants, comments, character set, license
   posture, feature usage, partition bounds, sequences, and column

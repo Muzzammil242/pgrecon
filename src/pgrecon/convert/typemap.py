@@ -200,3 +200,25 @@ def fk_compatible(child: str, parent: str) -> bool:
         ("integer", "float"),
         ("numeric", "float"),
     }
+
+
+# Types with no default btree operator class: neither an index nor a
+# unique key can be built on them without an expression.
+UNINDEXABLE = {"xml", "json"}
+
+
+def indexable(pg_type: str) -> bool:
+    return pg_type.split("(")[0].strip().lower() not in UNINDEXABLE
+
+
+def expression_family(pg_type: str) -> str:
+    """The coarse family an expression checker reasons in: text, number,
+    datetime, binary, or the bare type name."""
+    family = _type_family(pg_type)
+    if family in ("integer", "numeric", "float"):
+        return "number"
+    if family in ("text", "char"):
+        return "text"
+    if family == "bytea":
+        return "binary"
+    return family

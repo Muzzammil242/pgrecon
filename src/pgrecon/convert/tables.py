@@ -9,6 +9,7 @@ from pgrecon.convert.identifiers import (
     _default_guard,
     _fold_expression,
     _referenced_columns,
+    _type_mismatch_guard,
     ident,
     over_limit,
     truncation_clash,
@@ -16,7 +17,7 @@ from pgrecon.convert.identifiers import (
 from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.partitions import _emit_partition_children, _partition_meta
 from pgrecon.convert.residue import Residue
-from pgrecon.convert.typemap import map_type
+from pgrecon.convert.typemap import expression_family, map_type
 
 # Oracle identity columns store their backing sequence as the column
 # default; the name is always ISEQ$$_<object id>.
@@ -54,6 +55,25 @@ def _literal_length_guard(folded: str, column: sqlite3.Row) -> str | None:
             " Oracle would reject the row, PostgreSQL rejects the table"
         )
     return None
+
+
+def _column_families(
+    conn: sqlite3.Connection, owner: str, table: str
+) -> dict[str, str]:
+    """Upper-cased column name to expression family, for the type-aware
+    expression guards."""
+    families: dict[str, str] = {}
+    for r in conn.execute(
+        "SELECT column_name, data_type, data_length, data_precision, data_scale"
+        " FROM columns WHERE owner = ? AND table_name = ?",
+        (owner, table),
+    ):
+        mapped = map_type(
+            r["data_type"], r["data_length"], r["data_precision"], r["data_scale"]
+        ).pg_type
+        if mapped is not None:
+            families[(r["column_name"] or "").upper()] = expression_family(mapped)
+    return families
 
 
 def _date_columns(conn: sqlite3.Connection, owner: str, table: str) -> set[str]:
@@ -177,6 +197,7 @@ def emit_tables(
             name for name, r in extras.items() if (r["virtual"] or "NO") == "YES"
         }
         date_cols = _date_columns(conn, owner, table)
+        families = _column_families(conn, owner, table)
         for c in cols:
             mapped = map_type(
                 c["data_type"], c["data_length"], c["data_precision"], c["data_scale"]
@@ -224,7 +245,9 @@ def emit_tables(
                 guard = (
                     None
                     if expr is None
-                    else _default_guard(expr) or _date_function_guard(expr, date_cols)
+                    else _default_guard(expr)
+                    or _date_function_guard(expr, date_cols)
+                    or _type_mismatch_guard(expr, families)
                 )
                 if expr is not None and guard is None:
                     # PostgreSQL generated columns cannot read one another.
@@ -317,6 +340,7 @@ def emit_tables(
                         if folded is None
                         else _default_guard(folded)
                         or _date_function_guard(folded, date_cols)
+                        or _type_mismatch_guard(folded, families)
                         or _default_column_guard(folded)
                         or _literal_length_guard(folded, c)
                     )
