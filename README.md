@@ -186,11 +186,17 @@ equivalent PL/pgSQL form - comments and formatting carried through,
 SELECT INTO made STRICT so NO_DATA_FOUND still raises, function
 bodies left to PostgreSQL's own validation rather than disabling it.
 
+Inside those routines the top-N idiom converts - a ROWNUM bound over
+a sorted subquery becomes LIMIT - and MERGE carries over with its
+action conditions moved onto the WHEN clauses, the SET aliases
+dropped, and USING dual made a one-row source.
+
 The second file is the residue: one line per declined object, naming
-the construct and the line number. Packages, triggers, CONNECT BY,
-autonomous transactions, REF CURSOR interfaces, BULK COLLECT - the
-work that needs a person is refused by name, never guessed at, and a
-routine that calls a refused routine is refused with it.
+the construct and the line number. Packages, CONNECT BY, autonomous
+transactions, REF CURSOR interfaces, BULK COLLECT, ROWNUM beside an
+ORDER BY - the work that needs a person is refused by name, never
+guessed at, and a routine that calls a refused routine is refused
+with it.
 
 Two rules hold everywhere. Nothing invalid ships: CI applies the
 bundled sample's conversion to live PostgreSQL 16, 17, and 18 on

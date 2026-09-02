@@ -23,8 +23,6 @@ _REFUSE_FEATURES = {
     "connect_by": "CONNECT BY becomes a WITH RECURSIVE query",
     "outer_join_plus": "(+) outer joins in embedded SQL need the ANSI form",
     "goto": "GOTO has no counterpart; restructure the control flow",
-    "merge": "MERGE clauses differ between the engines; port it by hand",
-    "rownum": "ROWNUM needs LIMIT or row_number(); rewrite the query",
     "rowid": "ROWID access paths do not exist; use the primary key",
     "decode_call": ("DECODE matches NULLs; rewrite as CASE with IS NOT DISTINCT FROM"),
     "sql_cursor_attribute": (

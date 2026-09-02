@@ -82,6 +82,12 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
         # Loop variables of cursor FOR loops, which Oracle declares by
         # itself and PL/pgSQL wants declared as records.
         self.records: list[str] = []
+        # MERGE action conditions to move onto their WHEN clause at
+        # assembly: (matched start, stop, where start, stop, condition
+        # start, stop).
+        self.merge_moves: list[tuple[int, int, int, int, int, int]] = []
+        # Statement terminators that already carry a LIMIT.
+        self.limited: set[int] = set()
         self.reasons: list[str] = []
         self.notes: list[str] = []
         self.suppressed: list[tuple[int, int]] = []
@@ -208,6 +214,55 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
             name = _fold_written(self._span_text(record))
             if name not in self.records:
                 self.records.append(name)
+
+    # -- MERGE ------------------------------------------------------
+
+    def enterMerge_update_clause(self, ctx: Any) -> None:
+        if ctx.merge_update_delete_part() is not None:
+            self._reason(
+                ctx,
+                "MERGE ... WHEN MATCHED ... DELETE has no PostgreSQL form;"
+                " express the delete as a second WHEN MATCHED clause by hand",
+            )
+            return
+        self._merge_condition(ctx)
+
+    def enterMerge_insert_clause(self, ctx: Any) -> None:
+        self._merge_condition(ctx)
+
+    def _merge_condition(self, ctx: Any) -> None:
+        """Oracle filters a MERGE action with a trailing WHERE; PostgreSQL
+        puts the condition on the WHEN. The move happens at assembly so
+        the condition keeps every token rewrite made inside it."""
+        where = ctx.where_clause()
+        if where is None:
+            return
+        condition = where.condition()
+        matched = ctx.MATCHED()
+        if condition is None or matched is None:
+            self._reason(
+                ctx, "the MERGE action's WHERE did not dissect; port it by hand"
+            )
+            return
+        self.merge_moves.append(
+            (
+                matched.symbol.start,
+                matched.symbol.stop,
+                where.start.start,
+                where.stop.stop,
+                condition.start.start,
+                condition.stop.stop,
+            )
+        )
+
+    def enterMerge_element(self, ctx: Any) -> None:
+        # SET t.col = ... on Oracle; PostgreSQL wants the bare column.
+        column = ctx.column_name()
+        if column is None:
+            return
+        written = self._span_text(column)
+        if "." in written:
+            self._edit_ctx(column, _fold_written(written.rsplit(".", 1)[1]))
 
     # -- declarations -----------------------------------------------
 
@@ -594,6 +649,194 @@ def _q_literal(text: str) -> str | None:
     return "'" + text[3:-2].replace("'", "''") + "'"
 
 
+_AGGREGATES = {"COUNT", "SUM", "MIN", "MAX", "AVG", "LISTAGG", "STDDEV", "VARIANCE"}
+_ROWNUM_BREAKERS = {
+    L.ORDER: "ORDER BY",
+    L.GROUP: "GROUP BY",
+    L.HAVING: "HAVING",
+    L.UNION: "UNION",
+    L.INTERSECT: "INTERSECT",
+    L.MINUS: "MINUS",
+    L.CONNECT: "CONNECT BY",
+    L.START: "START WITH",
+}
+_ROWNUM_GENERIC = (
+    "ROWNUM outside a plain top-N bound needs LIMIT or row_number(); rewrite by hand"
+)
+
+
+def _fold_rownum(rewriter: _Rewriter, tokens: list[Any]) -> None:
+    """Every ROWNUM either becomes a LIMIT or names its refusal."""
+    for i, tok in enumerate(tokens):
+        if tok.type == L.ROWNUM:
+            reason = _rownum_to_limit(rewriter, tokens, i)
+            if reason is not None:
+                rewriter.reasons.append(f"{reason} (line {tok.line})")
+
+
+def _rownum_to_limit(rewriter: _Rewriter, tokens: list[Any], i: int) -> str | None:
+    """Turn the top-N idiom into LIMIT on its query, or say why not.
+
+    The shape that converts: ROWNUM compared with an integer literal,
+    as a plain conjunct of a SELECT's WHERE, with no ORDER BY, GROUP
+    BY, set operation, DISTINCT, or aggregate in that same query -
+    Oracle numbers rows before all of those, so LIMIT would mean
+    something else. The bound is removed from the WHERE and LIMIT n
+    goes at the end of that query, ahead of any FOR UPDATE.
+    """
+    j = i + 1
+    if j >= len(tokens):
+        return _ROWNUM_GENERIC
+    op = tokens[j]
+    if op.type == L.LESS_THAN_OP:
+        kind = "lt"
+        if (
+            j + 1 < len(tokens)
+            and tokens[j + 1].type == L.EQUALS_OP
+            and tokens[j + 1].start == op.stop + 1
+        ):
+            kind = "lte"
+            j += 1
+    elif op.type == L.EQUALS_OP:
+        kind = "eq"
+    else:
+        return _ROWNUM_GENERIC
+    if j + 1 >= len(tokens) or tokens[j + 1].type != L.UNSIGNED_INTEGER:
+        return _ROWNUM_GENERIC
+    num = tokens[j + 1]
+    bound = int(num.text or "0")
+    if kind == "lt":
+        bound -= 1
+    if kind == "eq" and bound != 1:
+        return (
+            "ROWNUM = n above 1 never matches a row on Oracle; rewrite the query"
+            " by hand"
+        )
+    if bound < 1:
+        return _ROWNUM_GENERIC
+    prev = tokens[i - 1] if i > 0 else None
+    if prev is None or prev.type not in (L.WHERE, L.AND):
+        return _ROWNUM_GENERIC
+
+    # The query this WHERE belongs to, walking left at depth 0.
+    depth = 0
+    k = i - 1
+    where_at = select_at = None
+    while k >= 0:
+        t = tokens[k]
+        if t.type == L.RIGHT_PAREN:
+            depth += 1
+        elif t.type == L.LEFT_PAREN:
+            if depth == 0:
+                return "ROWNUM inside a parenthesized condition needs a rewrite by hand"
+            depth -= 1
+        elif depth == 0:
+            if t.type == L.WHERE and where_at is None:
+                where_at = k
+            elif where_at is not None and t.type == L.SELECT:
+                select_at = k
+                break
+            elif where_at is not None and t.type in (L.DELETE, L.UPDATE):
+                return (
+                    "ROWNUM in DELETE or UPDATE has no LIMIT on PostgreSQL; bound"
+                    " the rows through the key in a subquery by hand"
+                )
+            elif t.type in (L.SEMICOLON, L.BEGIN, L.LOOP, L.THEN, L.ELSE):
+                break
+            elif where_at is not None and t.type == L.OR:
+                return "ROWNUM under OR needs a rewrite by hand"
+        k -= 1
+    if select_at is None or where_at is None:
+        return _ROWNUM_GENERIC
+
+    # The select list: no DISTINCT, no aggregate ahead of the bound.
+    depth = 0
+    for k in range(select_at + 1, where_at):
+        t = tokens[k]
+        if t.type == L.LEFT_PAREN:
+            depth += 1
+        elif t.type == L.RIGHT_PAREN:
+            depth -= 1
+        elif depth == 0:
+            if k == select_at + 1 and t.type in (L.DISTINCT, L.UNIQUE):
+                return "ROWNUM with DISTINCT is not a top-N bound; rewrite by hand"
+            if t.type == L.FROM:
+                break
+            nxt = tokens[k + 1] if k + 1 < len(tokens) else None
+            if (
+                (t.text or "").upper() in _AGGREGATES
+                and nxt is not None
+                and nxt.type == L.LEFT_PAREN
+            ):
+                return (
+                    "ROWNUM ahead of an aggregate bounds the rows counted, which"
+                    " LIMIT does not; rewrite by hand"
+                )
+
+    # The rest of the query, walking right at depth 0 to its end.
+    depth = 0
+    m = j + 2
+    terminator = None
+    while m < len(tokens):
+        t = tokens[m]
+        if t.type == L.LEFT_PAREN:
+            depth += 1
+        elif t.type == L.RIGHT_PAREN:
+            if depth == 0:
+                terminator = m
+                break
+            depth -= 1
+        elif depth == 0:
+            if t.type in (L.SEMICOLON, L.FOR):
+                terminator = m
+                break
+            if t.type in _ROWNUM_BREAKERS:
+                return (
+                    f"ROWNUM beside {_ROWNUM_BREAKERS[t.type]} in the same query"
+                    " is not a top-N bound on Oracle either; sort or group in a"
+                    " subquery, then bound, by hand"
+                )
+            if t.type == L.OR:
+                return "ROWNUM under OR needs a rewrite by hand"
+        m += 1
+    if terminator is None:
+        return _ROWNUM_GENERIC
+    if terminator in rewriter.limited:
+        return "ROWNUM bounded twice in one query; rewrite by hand"
+    rewriter.limited.add(terminator)
+
+    following = tokens[j + 2]
+    if prev.type == L.WHERE and following.type == L.AND:
+        rewriter._edit(tokens[i].start, following.stop, "")
+    else:
+        rewriter._edit(prev.start, num.stop, "")
+    term = tokens[terminator]
+    if term.type == L.FOR:
+        rewriter._edit(term.start, term.stop, f"LIMIT {bound} FOR")
+    else:
+        rewriter._edit(term.start, term.stop, f" LIMIT {bound}{term.text}")
+    return None
+
+
+def _merge_moves(text: str, rewriter: _Rewriter) -> list[tuple[int, int, str]]:
+    """Move each MERGE action's trailing WHERE onto its WHEN clause,
+    carrying the token rewrites made inside the condition along."""
+    edits = list(rewriter.edits)
+    for m_start, m_stop, w_start, w_stop, c_start, c_stop in rewriter.merge_moves:
+        inner = [e for e in edits if c_start <= e[0] and e[1] <= c_stop]
+        edits = [e for e in edits if e not in inner]
+        shifted = [(s - c_start, e - c_start, r) for s, e, r in inner]
+        folded = _apply(text[c_start : c_stop + 1], shifted)
+        if folded is None:
+            rewriter.reasons.append(
+                "MERGE condition rewrites collided; port it by hand"
+            )
+            return edits
+        edits.append((w_start, w_stop, ""))
+        edits.append((m_start, m_stop, f"MATCHED AND ({folded.strip()})"))
+    return edits
+
+
 def _scan_tokens(rewriter: _Rewriter, stream: Any) -> None:
     """Function-level rewrites off the default token channel.
 
@@ -605,6 +848,7 @@ def _scan_tokens(rewriter: _Rewriter, stream: Any) -> None:
     """
     tokens = [t for t in stream.tokens if t.channel == 0]
     folded_literals = _fold_binds(rewriter, tokens)
+    _fold_rownum(rewriter, tokens)
     for i, tok in enumerate(tokens):
         nxt = tokens[i + 1] if i + 1 < len(tokens) else None
         prev = tokens[i - 1] if i > 0 else None
@@ -619,6 +863,14 @@ def _scan_tokens(rewriter: _Rewriter, stream: Any) -> None:
             and (after is None or after.type != L.PERIOD)
         ):
             rewriter._edit(tok.start, nxt.stop, "")
+        elif (
+            tok.type == L.USING
+            and nxt is not None
+            and (nxt.text or "").upper() == "DUAL"
+        ):
+            # MERGE ... USING dual: a one-row source PostgreSQL lacks.
+            alias = " AS dual" if after is None or after.type == L.ON else ""
+            rewriter._edit(nxt.start, nxt.stop, "(SELECT 1)" + alias)
         elif tok.type == L.CHAR_STRING:
             if tok.start not in folded_literals:
                 standard = _q_literal(tok.text or "")
@@ -742,10 +994,11 @@ def rewrite_unit(
     )
     ParseTreeWalker.DEFAULT.walk(rewriter, parse.tree)
     _scan_tokens(rewriter, parse.tokens)
+    edits = _merge_moves(full, rewriter)
     notes = tuple(dict.fromkeys(rewriter.notes))
     if rewriter.reasons:
         return RewriteResult(None, tuple(dict.fromkeys(rewriter.reasons)), notes)
-    edited = _apply(full, rewriter.edits)
+    edited = _apply(full, edits)
     if edited is None or _BODY_OPEN not in edited:
         # Overlapping edits, or a shape with no IS/AS body such as an
         # external call specification: refuse rather than guess.

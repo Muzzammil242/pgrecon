@@ -87,6 +87,16 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   partitioned tables themselves; a view over one table that names a
   column the converted table does not have declines instead of
   shipping a query PostgreSQL rejects.
+- The code lane converts two more Oracle idioms instead of refusing
+  them. A ROWNUM bound that is a plain conjunct of a SELECT's WHERE
+  becomes LIMIT on that query - the SELECT ... WHERE ... AND ROWNUM = 1
+  lookup and the sorted-subquery top-N; ROWNUM beside ORDER BY, GROUP
+  BY, DISTINCT, an aggregate, or a set operation in the same query,
+  under OR, or in DELETE and UPDATE, declines with the reason. MERGE
+  statements carry over: an action's trailing WHERE moves onto its WHEN
+  clause as AND (...), SET t.col loses the alias PostgreSQL rejects,
+  and USING dual becomes a one-row source; WHEN MATCHED ... DELETE
+  declines by name.
 - The bundled example dump is regenerated from the Oracle-loop job:
   35 spool files including grants, comments, character set, license
   posture, feature usage, partition bounds, sequences, and column

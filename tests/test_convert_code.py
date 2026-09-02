@@ -173,7 +173,48 @@ BEGIN
     USING v || 'x';
 END concat3_p;"""
 
+ROWNUM_P = """PROCEDURE rownum_p(p_min IN NUMBER, p_kind OUT VARCHAR2) IS
+  v_top VARCHAR2(30);
+BEGIN
+  SELECT kind INTO p_kind FROM t_fees WHERE fee > p_min AND ROWNUM = 1;
+  FOR r IN (SELECT kind FROM (SELECT kind FROM t_fees ORDER BY fee DESC)
+            WHERE ROWNUM <= 3) LOOP
+    v_top := r.kind;
+  END LOOP;
+  SELECT kind INTO v_top FROM t_fees WHERE ROWNUM < 2 AND kind IS NOT NULL;
+END rownum_p;"""
+
+ROWNUM_BAD_P = """PROCEDURE rownum_bad_p IS
+  v VARCHAR2(30);
+BEGIN
+  DELETE FROM t_fees WHERE ROWNUM <= 100;
+  SELECT kind INTO v FROM t_fees WHERE ROWNUM <= 5 ORDER BY fee;
+  SELECT COUNT(*) INTO v FROM t_fees WHERE ROWNUM <= 5;
+END rownum_bad_p;"""
+
+MERGE_P = """PROCEDURE merge_p(p_kind IN VARCHAR2, p_fee IN NUMBER) IS
+BEGIN
+  MERGE INTO t_fees t
+  USING (SELECT p_kind AS kind, p_fee AS fee FROM dual) s
+  ON (t.kind = s.kind)
+  WHEN MATCHED THEN UPDATE SET t.fee = s.fee, t.tag = 'seen' WHERE s.fee > 0
+  WHEN NOT MATCHED THEN INSERT (kind, fee) VALUES (s.kind, s.fee)
+    WHERE s.fee IS NOT NULL;
+  MERGE INTO t_fees t USING dual ON (t.kind = p_kind)
+  WHEN NOT MATCHED THEN INSERT (kind, tag) VALUES (p_kind, TO_CHAR(SYSDATE, 'YYYY'));
+END merge_p;"""
+
+MERGE_DEL_P = """PROCEDURE merge_del_p IS
+BEGIN
+  MERGE INTO t_fees t USING (SELECT 'a' AS kind FROM dual) s ON (t.kind = s.kind)
+  WHEN MATCHED THEN UPDATE SET t.fee = 0 DELETE WHERE t.fee IS NULL;
+END merge_del_p;"""
+
 _UNITS = [
+    ("ROWNUM_P", "PROCEDURE", ROWNUM_P),
+    ("ROWNUM_BAD_P", "PROCEDURE", ROWNUM_BAD_P),
+    ("MERGE_P", "PROCEDURE", MERGE_P),
+    ("MERGE_DEL_P", "PROCEDURE", MERGE_DEL_P),
     ("FEE_FOR", "FUNCTION", FEE_FOR),
     ("AUTON_P", "PROCEDURE", AUTON_P),
     ("FN_COMMIT", "FUNCTION", FN_COMMIT),
@@ -330,8 +371,8 @@ def test_refusal_cascades_to_callers(code_db: Path) -> None:
 
 def test_routine_count_matches_emitted(code_db: Path) -> None:
     result = convert_schema(code_db)
-    assert result.routines == 9
-    assert result.sql.count("LANGUAGE plpgsql") == 9
+    assert result.routines == 11
+    assert result.sql.count("LANGUAGE plpgsql") == 11
 
 
 def test_concatenation_carries_oracle_null_semantics(code_db: Path) -> None:
@@ -397,3 +438,50 @@ def test_format_model_note_surfaces(code_db: Path) -> None:
         if r.object_name == "FEE_FOR" and r.kind == "note"
     ]
     assert any("format models" in n for n in notes)
+
+
+def _flat(sql: str, start: str) -> str:
+    """One statement's text from `start`, whitespace collapsed."""
+    body = sql[sql.index(start) :]
+    body = body[: body.index("$body$;")]
+    return " ".join(body.split())
+
+
+def test_rownum_top_n_bounds_become_limit(code_db: Path) -> None:
+    result = convert_schema(code_db)
+    flat = _flat(result.sql, "CREATE OR REPLACE PROCEDURE rownum_p")
+    assert "FROM t_fees WHERE fee > p_min LIMIT 1;" in flat
+    assert (
+        "(SELECT kind FROM (SELECT kind FROM t_fees ORDER BY fee DESC) LIMIT 3)" in flat
+    )
+    assert "FROM t_fees WHERE kind IS NOT NULL LIMIT 1;" in flat
+    assert "ROWNUM" not in flat.upper().replace("ROWNUM_P", "")
+
+
+def test_rownum_outside_the_idiom_refuses_by_shape(code_db: Path) -> None:
+    result = convert_schema(code_db)
+    assert "rownum_bad_p" not in result.sql
+    reason = _residue_reason(result, "ROWNUM_BAD_P")
+    assert "DELETE or UPDATE" in reason
+    assert "ORDER BY" in reason
+    assert "aggregate" in reason
+
+
+def test_merge_carries_over_with_conditions_on_the_when(code_db: Path) -> None:
+    result = convert_schema(code_db)
+    flat = _flat(result.sql, "CREATE OR REPLACE PROCEDURE merge_p")
+    assert "USING (SELECT p_kind AS kind, p_fee AS fee ) s ON (t.kind = s.kind)" in flat
+    assert (
+        "WHEN MATCHED AND (s.fee > 0) THEN UPDATE SET fee = s.fee, tag = 'seen'"
+        " WHEN NOT MATCHED AND (s.fee IS NOT NULL) THEN INSERT (kind, fee)"
+        " VALUES (s.kind, s.fee) ;" in flat
+    )
+    assert "USING (SELECT 1) AS dual ON (t.kind = p_kind)" in flat
+    assert "VALUES (p_kind, TO_CHAR(CURRENT_TIMESTAMP, 'YYYY'))" in flat
+    assert "WHERE" not in flat.split("WHEN MATCHED")[1].split("WHEN NOT MATCHED")[0]
+
+
+def test_merge_with_delete_refuses(code_db: Path) -> None:
+    result = convert_schema(code_db)
+    assert "merge_del_p" not in result.sql
+    assert "second WHEN MATCHED" in _residue_reason(result, "MERGE_DEL_P")

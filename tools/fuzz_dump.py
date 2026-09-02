@@ -1615,13 +1615,33 @@ class Estate:
                     f"BEGIN\n  SELECT {tcol} INTO p_out FROM {tbl} WHERE {pk} = p_id;\n"
                     "  IF p_out = '' THEN\n    p_out := 'empty';\n  END IF;\nEND;"
                 )
-            elif shape < 0.9 and funcs:
+            elif shape < 0.82 and funcs:
                 callee = rng.choice(funcs)
                 body = (
                     f"PROCEDURE {pname}(p_id IN NUMBER) IS\n  l NUMBER;\nBEGIN\n"
                     f"  l := {self.ref(callee)}(p_id);\n  COMMIT;\nEND;"
                 )
                 deps = [(callee, "FUNCTION")]
+            elif shape < 0.88:
+                body = (
+                    f"PROCEDURE {pname}(p_id IN NUMBER, p_name IN VARCHAR2) IS\n"
+                    f"BEGIN\n  MERGE INTO {tbl} t\n"
+                    "  USING (SELECT p_id AS id, p_name AS name FROM dual) s\n"
+                    f"  ON (t.{pk} = s.id)\n"
+                    f"  WHEN MATCHED THEN UPDATE SET t.{tcol} = s.name"
+                    " WHERE s.name IS NOT NULL\n"
+                    f"  WHEN NOT MATCHED THEN INSERT ({pk}, {tcol})"
+                    " VALUES (s.id, s.name);\n"
+                    "END;"
+                )
+            elif shape < 0.94:
+                body = (
+                    f"PROCEDURE {pname}(p_min IN NUMBER, p_out OUT VARCHAR2)"
+                    " IS\nBEGIN\n"
+                    f"  SELECT {tcol} INTO p_out FROM {tbl}"
+                    f" WHERE {pk} > p_min AND ROWNUM = 1;\n"
+                    "END;"
+                )
             else:
                 body = (
                     f"PROCEDURE {pname} IS\n  l_f UTL_FILE.FILE_TYPE;\nBEGIN\n"
