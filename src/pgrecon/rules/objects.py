@@ -232,4 +232,23 @@ RULES = [
             " WHERE parse_quality = 'fallback'"
         ),
     ),
+    Rule(
+        id="R-OBJ-11",
+        title="Remote call over a database link",
+        category="objects",
+        severity=Severity.HIGH,
+        effort=3.0,
+        remedy=(
+            "A call through @link runs code on another database, which"
+            " postgres_fdw cannot do - it reaches remote tables, not"
+            " remote procedures. Move the logic to the caller's side, to"
+            " the application, or to a queue between the databases."
+        ),
+        extension="postgres_fdw",
+        detector=sql_detector(
+            "SELECT owner, name, type,"
+            " callee || ' (line ' || line || ')' FROM plsql_calls"
+            " WHERE callee LIKE '%@%'"
+        ),
+    ),
 ]

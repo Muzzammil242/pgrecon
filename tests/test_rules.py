@@ -810,6 +810,19 @@ _RULE_FIXTURES = {
         "INSERT INTO features (feature, detail, count)"
         " VALUES ('external_tables', 'EXT', 1)"
     ),
+    "R-TYPE-08": (
+        "INSERT INTO columns (owner, table_name, column_name, data_type)"
+        " VALUES ('GIS', 'PARCELS', 'SHAPE', 'SDO_GEOMETRY')"
+    ),
+    "R-SRC-28": (
+        "INSERT INTO source (owner, name, type, line, text) VALUES"
+        " ('HR', 'WHO_AM_I', 'FUNCTION', 1,"
+        " 'RETURN SYS_CONTEXT(''USERENV'', ''SESSION_USER'');')"
+    ),
+    "R-OBJ-11": (
+        "INSERT INTO plsql_calls (owner, name, type, callee, line) VALUES"
+        " ('HR', 'SYNC_IT', 'PROCEDURE', 'REMOTE_PKG.LOG_IT@SALES_LINK', 7)"
+    ),
 }
 
 

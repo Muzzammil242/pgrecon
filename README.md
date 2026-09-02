@@ -115,18 +115,18 @@ variant for you.
 
 ## What it checks
 
-76 rules at present, each shipping with fixture tests:
+79 rules at present, each shipping with fixture tests:
 
 | Category        | Rules | Among them |
 | --------------- | ----- | ---------- |
 | Environment     | 2     | character-set encoding decision, object grants to migrate |
-| Data types      | 7     | LONG, XMLTYPE, ROWID and BFILE, TIMESTAMP WITH LOCAL TIME ZONE |
+| Data types      | 8     | LONG, XMLTYPE, ROWID and BFILE, SDO_GEOMETRY, TIMESTAMP WITH LOCAL TIME ZONE |
 | Storage         | 12    | interval partitioning, global temporary tables, IOTs, read-only tables, bitmap and function-based indexes |
 | PL/SQL code     | 18    | autonomous transactions, dynamic SQL, FORALL, collection types, the empty-string NULL trap |
-| SQL constructs  | 12    | CONNECT BY, (+) outer joins, ROWNUM, MERGE, the MODEL clause, PIVOT, flashback queries |
+| SQL constructs  | 13    | CONNECT BY, (+) outer joins, ROWNUM, MERGE, SYS_CONTEXT, the MODEL clause, PIVOT, flashback queries |
 | Packages        | 2     | package-level state, initialization blocks |
 | System packages | 5     | UTL_FILE, UTL_HTTP/SMTP/TCP, DBMS_SQL, DBMS_LOB, DBMS_OUTPUT |
-| Schema objects  | 13    | database links, scheduler jobs, materialized view logs, queues, evolved types, unparseable DDL |
+| Schema objects  | 14    | database links and remote calls over them, scheduler jobs, materialized view logs, queues, evolved types, unparseable DDL |
 | Performance     | 5     | optimizer hints, global indexes on partitioned tables, plan baselines, query-rewrite MVs |
 
 Stored PL/SQL is parsed with a full grammar, and code findings come

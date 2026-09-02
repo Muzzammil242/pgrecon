@@ -17,6 +17,12 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 - Every rule has a fixture test; fifteen that were exercised nowhere
   gained minimal inventories. The bundled sample's headline numbers
   are asserted so they cannot drift between releases.
+- Three rules take the catalog to 79: spatial columns (SDO_GEOMETRY
+  and the Oracle Spatial family, mapped toward PostGIS), session
+  context reads (SYS_CONTEXT and USERENV, detected as calls at the
+  token level so a column named sys_context stays silent), and
+  remote calls over a database link (a callee with @link, which
+  postgres_fdw cannot serve).
 - The bundled example dump is regenerated from the Oracle-loop job:
   35 spool files including grants, comments, character set, license
   posture, feature usage, partition bounds, sequences, and column

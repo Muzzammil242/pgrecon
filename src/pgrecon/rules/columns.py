@@ -130,4 +130,22 @@ RULES = [
             " data_type FROM columns WHERE data_type = 'BFILE'"
         ),
     ),
+    Rule(
+        id="R-TYPE-08",
+        title="Spatial column",
+        category="data types",
+        severity=Severity.HIGH,
+        effort=4.0,
+        remedy=(
+            "SDO_GEOMETRY and the rest of Oracle Spatial map to PostGIS"
+            " geometry and geography types, but the operator vocabulary,"
+            " spatial indexes, and coordinate-system handling all change;"
+            " every spatial query and index is a port, not a translation."
+        ),
+        extension="postgis",
+        detector=sql_detector(
+            "SELECT owner, table_name || '.' || column_name, 'COLUMN',"
+            " data_type FROM columns WHERE data_type LIKE 'SDO_%'"
+        ),
+    ),
 ]

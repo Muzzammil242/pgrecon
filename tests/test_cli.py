@@ -122,7 +122,7 @@ def test_explain_lists_catalog() -> None:
     result = runner.invoke(app, ["explain"])
     assert result.exit_code == 0
     assert "R-TYPE-01" in result.output
-    assert "76 rules" in result.output
+    assert "79 rules" in result.output
 
 
 def test_explain_rejects_unknown_id() -> None:

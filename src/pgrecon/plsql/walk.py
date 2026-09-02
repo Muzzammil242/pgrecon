@@ -167,6 +167,13 @@ def _scan_tokens(stream: Any) -> list[Feature]:
             # predefined type name; Ref_cursor_type_def catches the
             # TYPE ... IS REF CURSOR declarations.
             features.append(Feature("ref_cursor", token.line, None))
+        elif token.type in (PlSqlLexer.SYS_CONTEXT, PlSqlLexer.USERENV):
+            # Session-context reads. The lexer keywords both names but
+            # Oracle lets them serve as identifiers, so the call
+            # parenthesis is what separates the function from a
+            # variable or column that happens to share the name.
+            if nxt is not None and nxt.type == PlSqlLexer.LEFT_PAREN:
+                features.append(Feature("sys_context", token.line, token.text.upper()))
         elif token.type == PlSqlLexer.CHAR_STRING and token.text == "''":
             # A standalone empty-string literal, which Oracle treats as
             # NULL and PostgreSQL does not. An escaped quote inside a

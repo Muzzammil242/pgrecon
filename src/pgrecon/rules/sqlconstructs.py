@@ -269,4 +269,31 @@ RULES = [
             )
         ),
     ),
+    Rule(
+        id="R-SRC-28",
+        title="Session context read",
+        category="sql",
+        severity=Severity.MEDIUM,
+        effort=1.0,
+        remedy=(
+            "SYS_CONTEXT and USERENV read Oracle's session context."
+            " current_user, inet_client_addr(), and current_setting()"
+            " over custom parameters cover the common attributes;"
+            " SESSIONID, CLIENT_IDENTIFIER, and application contexts set"
+            " by DBMS_SESSION need each attribute mapped by hand."
+        ),
+        detector=sql_detector(
+            "SELECT owner, name, type, detail FROM ("
+            + feature_grep(
+                ("sys_context",),
+                "UPPER(s.text) LIKE '%SYS_CONTEXT(%'"
+                " OR UPPER(s.text) LIKE '%USERENV(%'",
+                "SYS_CONTEXT",
+            )
+            + " UNION ALL"
+            " SELECT owner, name, 'VIEW DDL', 'SYS_CONTEXT in view definition'"
+            " AS detail FROM ddl WHERE type = 'VIEW'"
+            " AND (UPPER(ddl) LIKE '%SYS_CONTEXT(%' OR UPPER(ddl) LIKE '%USERENV(%'))"
+        ),
+    ),
 ]

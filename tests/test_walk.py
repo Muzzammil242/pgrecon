@@ -15,6 +15,22 @@ def test_comments_and_strings_produce_no_features() -> None:
     assert [(f.feature, f.line) for f in analysis.features] == [("sysdate", 5)]
 
 
+def test_session_context_reads_are_features_not_columns() -> None:
+    unit = (
+        "FUNCTION who RETURN VARCHAR2 IS\n"
+        "  sys_context NUMBER := 1;  -- a column or variable, not a call\n"
+        "BEGIN\n"
+        "  RETURN SYS_CONTEXT('USERENV', 'SESSION_USER') || USERENV('SESSIONID');\n"
+        "END;"
+    )
+    analysis = analyze_source(unit)
+    assert analysis.errors == ()
+    context = [
+        (f.line, f.detail) for f in analysis.features if f.feature == "sys_context"
+    ]
+    assert context == [(4, "SYS_CONTEXT"), (4, "USERENV")]
+
+
 def test_statement_features_are_collected() -> None:
     unit = (
         "PROCEDURE p IS\n"
