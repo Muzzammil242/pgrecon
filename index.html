@@ -146,6 +146,11 @@ statements PostgreSQL rejected. August 2026.</p>
   <tr><td>AWS SCT</td><td class="n">481</td>
       <td>surviving objects depend on the aws_oracle_ext runtime extension</td></tr>
 </table>
+<p class="fine">The pgrecon row is the 0.6.0 measurement of 2026-08-27. 0.7.0
+shipped on 2026-09-03 without a re-run; its changes are guarded by CI, which
+applies the converter's output to PostgreSQL 16, 17, and 18 on every commit
+and fuzzes it nightly. Method and fine print on the
+<a href="benchmark.html">benchmark page</a>.</p>
 </div>
 <p class="fine">The claim, precisely: across these nine schemas the converter
 emitted zero statements PostgreSQL rejected, and everything it cannot prove
