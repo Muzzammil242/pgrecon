@@ -210,7 +210,7 @@ next full run.</p>
 podman run -d --name pg-target -e POSTGRES_PASSWORD=... postgres:16
 # install HR/OE/CO from db-sample-schemas v21.1, the four projects
 # from their repositories, RECON_TEST from this repo's fixture
-pip install pgrecon==0.5.0
+pip install pgrecon==0.6.0      # the version the pgrecon row was measured with
 pgrecon script            # extraction script; run per schema via sqlplus
 pgrecon load dump_dir --db est.db
 pgrecon convert --db est.db
