@@ -303,21 +303,6 @@ NUMERIC = {"NUMBER", "FLOAT", "BINARY_DOUBLE", "BINARY_FLOAT"}
 TEXTUAL = {"VARCHAR2", "NVARCHAR2", "CHAR", "NCHAR"}
 LOBS = {"CLOB", "NCLOB", "BLOB"}
 
-DEFAULTS = [
-    "SYSDATE ",
-    "SYSTIMESTAMP ",
-    "USER ",
-    "'N' ",
-    "0 ",
-    "NULL ",
-    "sys_guid() ",
-    "TO_DATE('2020-01-01', 'YYYY-MM-DD') ",
-    "TRUNC(SYSDATE) ",
-    "EMPTY_CLOB() ",
-    "'O''Brien' ",
-    "CURRENT_TIMESTAMP ",
-    "1.5 ",
-]
 
 COMMENT_TEXTS = [
     "Plain comment",
@@ -648,7 +633,7 @@ class Estate:
                     f'"{c.name}" IS NOT NULL',
                     0,
                 )
-            if c.data_type not in LOBS | {"LONG", "LONG RAW"} and rng.random() < 0.18:
+            if c.data_type not in {"LONG", "LONG RAW"} and rng.random() < 0.2:
                 self.add_default(table, c)
             if rng.random() < 0.2:
                 self.add(
@@ -729,25 +714,81 @@ class Estate:
         return text
 
     def add_default(self, table: Table, c: Column) -> None:
+        """A default Oracle would accept for the column's type."""
         rng = self.rng
+        dtype = c.data_type
+        if dtype in NUMERIC:
+            pool = ["0 ", "1.5 ", "-1 ", "NULL "]
+        elif dtype in TEXTUAL:
+            pool = [
+                "'N' ",
+                "USER ",
+                "'O''Brien' ",
+                "TO_CHAR(SYSDATE, 'YYYY') ",
+                "SYS_CONTEXT('USERENV', 'SESSION_USER') ",
+                "sys_guid() ",
+                "NULL ",
+            ]
+        elif dtype == "DATE" or dtype.startswith("TIMESTAMP"):
+            pool = [
+                "SYSDATE ",
+                "SYSTIMESTAMP ",
+                "TRUNC(SYSDATE) ",
+                "TO_DATE('2020-01-01', 'YYYY-MM-DD') ",
+                "CURRENT_TIMESTAMP ",
+            ]
+        elif dtype in ("CLOB", "NCLOB"):
+            pool = ["EMPTY_CLOB() "]
+        elif dtype == "BLOB":
+            pool = ["EMPTY_BLOB() "]
+        elif dtype == "RAW":
+            pool = ["sys_guid() ", "HEXTORAW('FF') "]
+        else:
+            pool = ["NULL "]
         roll = rng.random()
-        if roll < 0.12 and c.data_type == "NUMBER" and self.sequences:
-            text = f'{q(OWNER)}.{q(rng.choice(self.sequences))}."NEXTVAL"'
-            self.add("column_defaults.csv", OWNER, table.name, c.name, text, "NO", 0)
-        elif roll < 0.20 and c.data_type == "NUMBER":
+        if roll < 0.12 and dtype == "NUMBER" and self.sequences:
+            seq = rng.choice(self.sequences)
+            spelled = rng.choice(
+                [
+                    f'{q(OWNER)}.{q(seq)}."NEXTVAL"',
+                    f"{q(OWNER)}.{q(seq)}.nextval",
+                    f"{q(seq)}.NEXTVAL",
+                ]
+            )
+            self.add("column_defaults.csv", OWNER, table.name, c.name, spelled, "NO", 0)
+        elif roll < 0.20 and dtype == "NUMBER":
             seq = f"ISEQ$$_{self.sys_counter + 70000}"
             self.sysname()
             self.obj(seq, "SEQUENCE")
             self.add("sequences.csv", OWNER, seq, "1", "9" * 28, "1", "N", "20", "41")
             text = f"{q(OWNER)}.{q(seq)}.nextval"
             self.add("column_defaults.csv", OWNER, table.name, c.name, text, "NO", 0)
-        elif roll < 0.30 and len(table.columns) > 2:
-            others = [o for o in table.columns if o is not c and o.data_type in NUMERIC]
-            if others:
+        elif roll < 0.30:
+            others = [
+                o
+                for o in table.columns
+                if o is not c and o.data_type in NUMERIC and o.name != c.name
+            ]
+            if dtype in NUMERIC and others:
                 text = f"{q(others[0].name)} * 2"
                 self.add(
                     "column_defaults.csv", OWNER, table.name, c.name, text, "YES", 0
                 )
+            elif dtype in TEXTUAL:
+                texts = [
+                    o for o in table.columns if o is not c and o.data_type in TEXTUAL
+                ]
+                if texts:
+                    text = f"UPPER({q(texts[0].name)})"
+                    self.add(
+                        "column_defaults.csv",
+                        OWNER,
+                        table.name,
+                        c.name,
+                        text,
+                        "YES",
+                        0,
+                    )
         elif roll < 0.36:
             self.add(
                 "column_defaults.csv",
@@ -764,7 +805,7 @@ class Estate:
                 OWNER,
                 table.name,
                 c.name,
-                rng.choice(DEFAULTS),
+                rng.choice(pool),
                 "NO",
                 0,
             )

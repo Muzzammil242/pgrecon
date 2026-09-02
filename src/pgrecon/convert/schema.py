@@ -93,7 +93,7 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
     # tables; constraints and triggers must decline them by name.
     mv_names = {name for (_, name) in mview_queries(conn)}
     table_count, partition_count = emit_tables(
-        conn, out, residue, emitted, dropped, names, mv_names
+        conn, out, residue, emitted, dropped, names, mv_names, sequence_names
     )
     mview_count = _emit_mviews(conn, out, residue, emitted, dropped, set(), names)
 

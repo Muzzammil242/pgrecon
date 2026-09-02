@@ -41,6 +41,17 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   lowercase - so a table, its checks, comments, grants, triggers, and
   the views over it all spell it the same way. Trigger names and
   their tables are quoted when they need it.
+- From the live-apply law's first run, six more shapes that used to
+  ship as DDL PostgreSQL rejects now convert or decline by name: a
+  column default drawn from a sequence in the catalog's own spelling
+  becomes nextval over the converted sequence; EMPTY_CLOB and
+  EMPTY_BLOB defaults become empty values; a sequence whose last
+  value lies outside its bounds is declined instead of emitted with
+  an impossible START; partitioning by a virtual or unconverted
+  column is declined and the table emitted plain; TRUNC and ROUND
+  over a date column or date expression decline in defaults, index
+  expressions, and check conditions; an index expression that parses
+  as an alias declines instead of shipping as nonsense.
 - The bundled example dump is regenerated from the Oracle-loop job:
   35 spool files including grants, comments, character set, license
   posture, feature usage, partition bounds, sequences, and column

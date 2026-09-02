@@ -51,10 +51,24 @@ def _emit_sequences(
             continue
         parts = [f"CREATE SEQUENCE {ident(r['sequence_name'])}"]
         parts.append(f"INCREMENT BY {fields['increment_by']}")
-        if abs(int(fields["min_value"])) <= _PG_BIGINT_MAX:
-            parts.append(f"MINVALUE {fields['min_value']}")
-        if fields["max_value"] and int(fields["max_value"]) <= _PG_BIGINT_MAX:
-            parts.append(f"MAXVALUE {fields['max_value']}")
+        # Bounds past bigint mean unbounded and are left to PostgreSQL's
+        # defaults; the start value is checked against the bounds that
+        # will actually be enforced.
+        increment = int(fields["increment_by"])
+        low_raw = int(fields["min_value"])
+        low = low_raw if abs(low_raw) <= _PG_BIGINT_MAX else None
+        high_raw = int(fields["max_value"]) if fields["max_value"] else None
+        high = high_raw if high_raw is not None and high_raw <= _PG_BIGINT_MAX else None
+        if low is not None:
+            parts.append(f"MINVALUE {low}")
+        if high is not None:
+            parts.append(f"MAXVALUE {high}")
+        floor = (
+            low if low is not None else (1 if increment > 0 else -_PG_BIGINT_MAX - 1)
+        )
+        ceiling = (
+            high if high is not None else (_PG_BIGINT_MAX if increment > 0 else -1)
+        )
         start = int(fields["last_number"])
         if start > _PG_BIGINT_MAX:
             residue.append(
@@ -63,6 +77,18 @@ def _emit_sequences(
                     r["sequence_name"],
                     "sequence",
                     "current value exceeds bigint; recreate by hand",
+                )
+            )
+            continue
+        if not floor <= start <= ceiling:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["sequence_name"],
+                    "sequence",
+                    f"last value {start} lies outside its bounds {floor} to {ceiling}:"
+                    " the sequence is exhausted on Oracle, or the facts"
+                    " disagree - recreate by hand",
                 )
             )
             continue

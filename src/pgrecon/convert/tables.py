@@ -4,6 +4,7 @@ import re
 import sqlite3
 
 from pgrecon.convert.identifiers import (
+    _date_function_guard,
     _default_guard,
     _fold_expression,
     ident,
@@ -18,6 +19,27 @@ from pgrecon.convert.typemap import map_type
 # Oracle identity columns store their backing sequence as the column
 # default; the name is always ISEQ$$_<object id>.
 _IDENTITY_DEFAULT = re.compile(r"ISEQ\$\$_\d+.{0,4}NEXTVAL", re.IGNORECASE | re.DOTALL)
+
+# A default drawing from a sequence, as the catalog spells it:
+# "OWNER"."SEQ"."NEXTVAL", SEQ.NEXTVAL, quoted or bare in any mix.
+_SEQUENCE_DEFAULT = re.compile(
+    r'^\s*(?:("[^"]+"|[\w$#]+)\s*\.\s*)?("[^"]+"|[\w$#]+)\s*\.\s*"?NEXTVAL"?\s*$',
+    re.IGNORECASE,
+)
+# LOB initializers: an empty, non-null value of the target type.
+_EMPTY_LOBS = {"EMPTY_CLOB()": "''", "EMPTY_BLOB()": "''::bytea"}
+
+
+def _date_columns(conn: sqlite3.Connection, owner: str, table: str) -> set[str]:
+    """Upper-cased names of the table's DATE and TIMESTAMP columns."""
+    return {
+        (r["column_name"] or "").upper()
+        for r in conn.execute(
+            "SELECT column_name FROM columns WHERE owner = ? AND table_name = ?"
+            " AND (UPPER(data_type) = 'DATE' OR UPPER(data_type) LIKE 'TIMESTAMP%')",
+            (owner, table),
+        )
+    }
 
 
 def _columns(conn: sqlite3.Connection, owner: str, table: str) -> list[sqlite3.Row]:
@@ -37,6 +59,7 @@ def emit_tables(
     dropped: dict[tuple[str, str], set[str]],
     names: NameRegistry,
     skip_mviews: set[str] | None = None,
+    sequence_names: set[str] | None = None,
 ) -> tuple[int, int]:
     """Emit every table; returns (table_count, partition_count).
 
@@ -123,6 +146,8 @@ def emit_tables(
         }
         lines: list[str] = []
         kept_columns: set[str] = set()
+        virtual_columns: set[str] = set()
+        date_cols = _date_columns(conn, owner, table)
         for c in cols:
             mapped = map_type(
                 c["data_type"], c["data_length"], c["data_precision"], c["data_scale"]
@@ -161,12 +186,17 @@ def emit_tables(
                 )
             extra = extras.get(cname)
             if extra is not None and (extra["virtual"] or "NO") == "YES":
+                virtual_columns.add(cname)
                 expr = (
                     None
                     if extra["truncated"]
                     else _fold_expression(extra["default_text"] or "")
                 )
-                guard = None if expr is None else _default_guard(expr)
+                guard = (
+                    None
+                    if expr is None
+                    else _default_guard(expr) or _date_function_guard(expr, date_cols)
+                )
                 if expr is None or guard is not None:
                     residue.append(
                         Residue(
@@ -208,9 +238,46 @@ def emit_tables(
                             " column emitted without it",
                         )
                     )
+                elif (
+                    seq := _SEQUENCE_DEFAULT.match(extra["default_text"])
+                ) is not None:
+                    # A default drawn from a sequence; PostgreSQL wants
+                    # nextval over the converted sequence, by its
+                    # catalog spelling, and only if it exists.
+                    wanted = seq.group(2).strip('"').upper()
+                    raw_seq = conn.execute(
+                        "SELECT sequence_name FROM sequences"
+                        " WHERE UPPER(sequence_name) = ? LIMIT 1",
+                        (wanted,),
+                    ).fetchone()
+                    if raw_seq is not None and wanted in (sequence_names or set()):
+                        suffix = (
+                            f" DEFAULT nextval('{ident(raw_seq['sequence_name'])}')"
+                        )
+                    else:
+                        residue.append(
+                            Residue(
+                                owner,
+                                f"{table}.{c['column_name']}",
+                                "note",
+                                f"default draws from sequence {wanted}, which is"
+                                " not in the converted set; column emitted"
+                                " without it",
+                            )
+                        )
+                elif extra["default_text"].replace(" ", "").upper() in _EMPTY_LOBS:
+                    suffix = (
+                        " DEFAULT "
+                        + _EMPTY_LOBS[extra["default_text"].replace(" ", "").upper()]
+                    )
                 else:
                     folded = _fold_expression(extra["default_text"])
-                    guard = None if folded is None else _default_guard(folded)
+                    guard = (
+                        None
+                        if folded is None
+                        else _default_guard(folded)
+                        or _date_function_guard(folded, date_cols)
+                    )
                     if folded is None or guard is not None:
                         residue.append(
                             Residue(
@@ -241,6 +308,27 @@ def emit_tables(
             )
             continue
         meta, part_reason = _partition_meta(conn, owner, table)
+        if meta is not None:
+            # PostgreSQL cannot partition by a generated column, nor by
+            # a column that did not convert.
+            gone = dropped.get((owner, table), set())
+            for k in conn.execute(
+                "SELECT column_name FROM part_key_columns"
+                " WHERE owner = ? AND table_name = ? ORDER BY position",
+                (owner, table),
+            ):
+                key = (k["column_name"] or "").upper()
+                if key in virtual_columns:
+                    part_reason = (
+                        f"partition key {key} is a virtual column; PostgreSQL"
+                        " cannot partition by a generated column - partition by"
+                        " the expression itself by hand"
+                    )
+                elif key in gone or key not in kept_columns:
+                    part_reason = f"partition key {key} was not converted"
+                if part_reason is not None:
+                    meta = None
+                    break
         if part_reason is not None:
             residue.append(Residue(owner, table, "partitioning", part_reason))
         if (t["temporary"] or "N") == "Y":

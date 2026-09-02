@@ -233,7 +233,13 @@ def _fold_expression(expression: str) -> str | None:
         select = _fold_identifiers(tree).find(exp.Select)
         if select is None or not select.expressions:
             return None
-        return str(select.expressions[0].sql(dialect="postgres"))
+        head = select.expressions[0]
+        if isinstance(head, exp.Alias) or len(select.expressions) != 1:
+            # An index expression is one expression; a trailing DESC or
+            # a stray comma parses as an alias or a second column and
+            # would ship as nonsense.
+            return None
+        return str(head.sql(dialect="postgres"))
     except SqlglotError:
         return None
 
@@ -308,6 +314,53 @@ def _default_guard(folded: str) -> str | None:
                     "TO_DATE over a non-literal has no matching"
                     " PostgreSQL signature; rewrite it by hand"
                 )
+    return None
+
+
+_DATE_SOURCES = {
+    "CURRENT_TIMESTAMP",
+    "CURRENT_DATE",
+    "NOW",
+    "TO_DATE",
+    "TO_TIMESTAMP",
+    "STR_TO_DATE",
+    "LOCALTIMESTAMP",
+}
+
+
+def _date_function_guard(folded: str, date_columns: set[str]) -> str | None:
+    """Why a folded expression misuses a date, or None.
+
+    Oracle TRUNC and ROUND accept dates; PostgreSQL's do not, and the
+    fold cannot know a column's type. Callers pass the table's date
+    and timestamp columns so TRUNC(created) declines by name instead
+    of shipping DDL the server rejects; a date function as the
+    argument declines the same way.
+    """
+    tree = _reparse(folded)
+    if tree is None:
+        return None
+    for node in tree.walk():
+        name = _func_name(node)
+        if name not in ("TRUNC", "ROUND"):
+            continue
+        if isinstance(node, exp.Anonymous):
+            first = node.expressions[0] if node.expressions else None
+        else:
+            first = node.args.get("this")
+        if isinstance(first, exp.Column) and first.name.upper() in date_columns:
+            return (
+                f"{name} over date column {first.name.upper()} has no PostgreSQL"
+                " counterpart; use date_trunc by hand"
+            )
+        if first is not None and (
+            _func_name(first) in _DATE_SOURCES
+            or isinstance(first, exp.CurrentTimestamp | exp.CurrentDate)
+        ):
+            return (
+                f"{name} over a date expression has no PostgreSQL counterpart;"
+                " use date_trunc by hand"
+            )
     return None
 
 

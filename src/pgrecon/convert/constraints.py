@@ -4,6 +4,7 @@ import re
 import sqlite3
 
 from pgrecon.convert.identifiers import (
+    _date_function_guard,
     _fold_condition,
     _referenced_columns,
     ident,
@@ -11,6 +12,7 @@ from pgrecon.convert.identifiers import (
 )
 from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
+from pgrecon.convert.tables import _date_columns
 
 _NOT_NULL_CONDITION = re.compile(
     r'^"?[A-Za-z0-9_$#]+"?\s+IS\s+NOT\s+NULL$', re.IGNORECASE
@@ -234,13 +236,20 @@ def _emit_checks(
             )
             continue
         folded = _fold_condition(condition)
-        if folded is None:
+        date_guard = (
+            None
+            if folded is None
+            else _date_function_guard(
+                folded, _date_columns(conn, r["owner"], r["table_name"])
+            )
+        )
+        if folded is None or date_guard is not None:
             residue.append(
                 Residue(
                     r["owner"],
                     r["constraint_name"],
                     "check",
-                    "condition could not be translated; port it by hand",
+                    date_guard or "condition could not be translated; port it by hand",
                 )
             )
             continue

@@ -1131,3 +1131,119 @@ def test_case_sensitive_and_reserved_names_spell_consistently(tmp_path: Path) ->
     for wrong in ('"LIMIT"', "mixeddept", '"MIXEDDEPT"'):
         assert wrong not in sql
     assert not [r for r in result.residue if r.kind not in ("note",)]
+
+
+def test_sequence_default_becomes_nextval(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO sequences (owner, sequence_name, min_value, max_value,
+                               increment_by, cycle_flag, cache_size, last_number)
+          VALUES ('HR', 'EMP_SEQ', '1', '9999999999999999999999999999', '1', 'N',
+                  '20', '1000'),
+                 ('HR', 'DEAD_SEQ', '1', '100', '1', 'N', '20', '500');
+        INSERT INTO column_defaults (owner, table_name, column_name, default_text,
+                                     virtual, truncated)
+          VALUES ('HR', 'EMP', 'EMP_ID', '"HR"."EMP_SEQ"."NEXTVAL"', 'NO', 0),
+                 ('HR', 'EMP', 'DEPT_ID', 'DEAD_SEQ.NEXTVAL', 'NO', 0),
+                 ('HR', 'DEPT', 'NAME', 'EMPTY_CLOB()', 'NO', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    sql = result.sql
+    assert "emp_id bigint DEFAULT nextval('emp_seq') NOT NULL" in sql
+    assert "CREATE SEQUENCE emp_seq INCREMENT BY 1 MINVALUE 1 START WITH 1000" in sql
+    assert "DEAD_SEQ" not in sql.upper().replace("DEAD_SEQ,", "")
+    reasons = {r.object_name: r.reason for r in result.residue}
+    assert "outside its bounds" in reasons["DEAD_SEQ"]
+    assert "not in the converted set" in reasons["EMP.DEPT_ID"]
+    assert "name varchar(50) DEFAULT '' NOT NULL" in sql
+
+
+def test_partition_by_virtual_or_dropped_column_is_declined(tmp_path: Path) -> None:
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary) VALUES
+          ('HR', 'BY_VIRTUAL', 'N'), ('HR', 'BY_GONE', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'BY_VIRTUAL', 'ID',    1, 'NUMBER', 22, 10, 0, 'N'),
+          ('HR', 'BY_VIRTUAL', 'PRICE', 2, 'NUMBER', 22, 10, 2, 'Y'),
+          ('HR', 'BY_VIRTUAL', 'BAND',  3, 'NUMBER', 22, 10, 0, 'Y'),
+          ('HR', 'BY_GONE', 'ID',  1, 'NUMBER', 22, 10, 0, 'N'),
+          ('HR', 'BY_GONE', 'DOC', 2, 'BFILE', 530, NULL, NULL, 'Y');
+        INSERT INTO column_defaults (owner, table_name, column_name, default_text,
+                                     virtual, truncated)
+          VALUES ('HR', 'BY_VIRTUAL', 'BAND', '"PRICE" * 2', 'YES', 0);
+        INSERT INTO part_tables (owner, table_name, partitioning_type,
+                                 subpartitioning_type, partition_count, interval)
+          VALUES ('HR', 'BY_VIRTUAL', 'LIST', 'NONE', 1, NULL),
+                 ('HR', 'BY_GONE', 'HASH', 'NONE', 2, NULL);
+        INSERT INTO part_key_columns (owner, table_name, column_name, position)
+          VALUES ('HR', 'BY_VIRTUAL', 'BAND', 1), ('HR', 'BY_GONE', 'DOC', 1);
+        INSERT INTO part_partitions (owner, table_name, partition_name, position,
+                                     high_value, truncated)
+          VALUES ('HR', 'BY_VIRTUAL', 'P1', 1, '1, 2', 0),
+                 ('HR', 'BY_GONE', 'P1', 1, NULL, 0),
+                 ('HR', 'BY_GONE', 'P2', 2, NULL, 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(db)
+    assert "PARTITION BY" not in result.sql
+    assert "GENERATED ALWAYS AS (price * 2) STORED" in result.sql
+    reasons = {
+        r.object_name: r.reason for r in result.residue if r.kind == "partitioning"
+    }
+    assert "virtual column" in reasons["BY_VIRTUAL"]
+    assert "was not converted" in reasons["BY_GONE"]
+
+
+def test_trunc_over_dates_declines_where_types_are_known(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO constraints (owner, constraint_name, table_name, type)
+          VALUES ('HR', 'EMP_HIRED_CK', 'EMP', 'C'),
+                 ('HR', 'EMP_SAL_RND_CK', 'EMP', 'C');
+        INSERT INTO check_conditions (owner, constraint_name, condition, truncated)
+          VALUES ('HR', 'EMP_HIRED_CK', 'TRUNC("HIRED") = "HIRED"', 0),
+                 ('HR', 'EMP_SAL_RND_CK', 'ROUND("SALARY") > 0', 0);
+        INSERT INTO indexes (owner, index_name, table_name, index_type, uniqueness,
+                             generated)
+          VALUES ('HR', 'EMP_HIRED_DAY_IX', 'EMP', 'FUNCTION-BASED NORMAL',
+                  'NONUNIQUE', 'N'),
+                 ('HR', 'EMP_HIRED_DESC_IX', 'EMP', 'FUNCTION-BASED NORMAL',
+                  'NONUNIQUE', 'N');
+        INSERT INTO index_columns (owner, index_name, column_name, position)
+          VALUES ('HR', 'EMP_HIRED_DAY_IX', 'SYS_NC00010$', 1),
+                 ('HR', 'EMP_HIRED_DESC_IX', 'SYS_NC00011$', 1);
+        INSERT INTO index_expressions (owner, index_name, position, expression,
+                                       truncated)
+          VALUES ('HR', 'EMP_HIRED_DAY_IX', 1, 'TRUNC("HIRED")', 0),
+                 ('HR', 'EMP_HIRED_DESC_IX', 1, '"HIRED" DESC', 0);
+        INSERT INTO column_defaults (owner, table_name, column_name, default_text,
+                                     virtual, truncated)
+          VALUES ('HR', 'EMP', 'HIRED', 'TRUNC(SYSDATE)', 'NO', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    sql = result.sql
+    assert "ADD CONSTRAINT emp_sal_rnd_ck CHECK (ROUND(salary) > 0)" in sql
+    assert "emp_hired_ck" not in sql
+    assert "emp_hired_day_ix" not in sql and "emp_hired_desc_ix" not in sql
+    assert "DEFAULT TRUNC" not in sql
+    reasons = {r.object_name: r.reason for r in result.residue}
+    assert "date column HIRED" in reasons["EMP_HIRED_CK"]
+    assert "date column HIRED" in reasons["EMP_HIRED_DAY_IX"]
+    assert "recreate it from the source" in reasons["EMP_HIRED_DESC_IX"]
+    hired_notes = [r.reason for r in result.residue if r.object_name == "EMP.HIRED"]
+    assert any("date expression" in note for note in hired_notes)
