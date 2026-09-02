@@ -1291,8 +1291,15 @@ class Estate:
                     if (c.data_type in NUMERIC) == (c1.data_type in NUMERIC)
                     and (c.data_type in TEXTUAL) == (c1.data_type in TEXTUAL)
                 ),
-                c2,
+                None,
             )
+            if mate is None:
+                # No column of the key's family: a plain projection instead.
+                return (
+                    [c1.name, c2.name],
+                    f"SELECT {q(c1.name)}, {q(c2.name)} FROM {t}",
+                    deps,
+                )
             return (
                 [c1.name, "LVL"],
                 f"SELECT {q(c1.name)}, LEVEL AS LVL\n  FROM {t}\n"
