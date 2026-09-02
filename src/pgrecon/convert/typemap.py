@@ -162,3 +162,41 @@ def map_code_type(text: str) -> Mapped:
         # honest mapping is numeric, not a range-limited integer.
         return Mapped("numeric")
     return map_type(base, length, precision, scale)
+
+
+def _type_family(pg_type: str) -> str:
+    base = pg_type.split("(")[0].strip().lower()
+    if base in ("smallint", "integer", "bigint"):
+        return "integer"
+    if base in ("numeric", "decimal"):
+        return "numeric"
+    if base in ("real", "double precision"):
+        return "float"
+    if base in ("varchar", "text", "character varying"):
+        return "text"
+    if base in ("char", "character", "bpchar"):
+        return "char"
+    if base in ("date", "timestamp", "timestamptz"):
+        return "datetime"
+    return base
+
+
+def fk_compatible(child: str, parent: str) -> bool:
+    """Whether a foreign key from the child type to the parent type can
+    exist on PostgreSQL.
+
+    The referencing column must compare through the referenced key's
+    operator class, with implicit casts allowed: integers widen to
+    numeric or float, numeric to float, and the date and time types
+    share one class. Oracle lets VARCHAR2 reference CHAR and NUMBER
+    reference NUMBER(10); PostgreSQL does neither once the types have
+    landed on text against char, or numeric against bigint.
+    """
+    c, p = _type_family(child), _type_family(parent)
+    if c == p:
+        return True
+    return (c, p) in {
+        ("integer", "numeric"),
+        ("integer", "float"),
+        ("numeric", "float"),
+    }

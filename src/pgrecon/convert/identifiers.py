@@ -245,6 +245,18 @@ def _fold_identifiers(tree: Expr) -> Expr:
     The concat call is emitted anonymously because sqlglot renders its
     own Concat node back to || on the postgres dialect.
     """
+    # Oracle's USER is a function spelled like a column; a column that
+    # is really named USER arrives quoted from the catalog and stays.
+    # It runs before the fold, which would quote the reserved word.
+    for node in list(tree.walk()):
+        if (
+            isinstance(node, exp.Column)
+            and node.name.upper() == "USER"
+            and not node.args.get("table")
+            and isinstance(node.this, exp.Identifier)
+            and not node.this.quoted
+        ):
+            node.replace(exp.CurrentUser())
     for node in tree.walk():
         if isinstance(node, exp.Identifier):
             folded = fold_case(node.name)
@@ -449,6 +461,26 @@ def _date_function_guard(folded: str, date_columns: set[str]) -> str | None:
             return (
                 f"{name} over a date expression has no PostgreSQL counterpart;"
                 " use date_trunc by hand"
+            )
+    return None
+
+
+def _default_column_guard(folded: str) -> str | None:
+    """Why a column default cannot ship, or None.
+
+    A default cannot read other columns on PostgreSQL, and every Oracle
+    pseudo-column the fold did not translate - UID, ROWNUM, LEVEL -
+    reaches here looking like one.
+    """
+    tree = _reparse(folded)
+    if tree is None:
+        return None
+    for node in tree.walk():
+        if isinstance(node, exp.Column):
+            return (
+                f"default refers to {node.name.upper()}, a column or Oracle"
+                " pseudo-column; PostgreSQL defaults cannot - choose a"
+                " replacement by hand"
             )
     return None
 

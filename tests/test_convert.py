@@ -1254,3 +1254,82 @@ def test_trunc_over_dates_declines_where_types_are_known(facts_db: Path) -> None
         "DATE_TRUNC('week', CURRENT_TIMESTAMP)"
     )
     assert _fold_expression("TRUNC(SYSDATE, 'W')") is None
+
+
+def test_foreign_keys_over_incompatible_types_decline(tmp_path: Path) -> None:
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary) VALUES
+          ('HR', 'PARENT', 'N'), ('HR', 'CHILD', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'PARENT', 'ID',   1, 'NUMBER',   22, 10, 0, 'N'),
+          ('HR', 'PARENT', 'CODE', 2, 'CHAR',     3,  NULL, NULL, 'N'),
+          ('HR', 'CHILD',  'ID',   1, 'NUMBER',   22, 10, 0, 'N'),
+          ('HR', 'CHILD',  'P_ID', 2, 'NUMBER',   22, NULL, NULL, 'Y'),
+          ('HR', 'CHILD',  'Q_ID', 3, 'NUMBER',   22, 5, 0, 'Y'),
+          ('HR', 'CHILD',  'CODE', 4, 'VARCHAR2', 3,  NULL, NULL, 'Y'),
+          ('HR', 'CHILD',  'X_ID', 5, 'NUMBER',   22, 10, 0, 'Y');
+        INSERT INTO constraints (owner, constraint_name, table_name, type, ref_owner,
+                                 ref_constraint, delete_rule) VALUES
+          ('HR', 'PARENT_PK', 'PARENT', 'P', NULL, NULL, NULL),
+          ('HR', 'PARENT_CODE_UK', 'PARENT', 'U', NULL, NULL, NULL),
+          ('HR', 'CHILD_PK', 'CHILD', 'P', NULL, NULL, NULL),
+          ('HR', 'FK_NUMERIC', 'CHILD', 'R', 'HR', 'PARENT_PK', 'NO ACTION'),
+          ('HR', 'FK_NARROW', 'CHILD', 'R', 'HR', 'PARENT_PK', 'NO ACTION'),
+          ('HR', 'FK_CHARS', 'CHILD', 'R', 'HR', 'PARENT_CODE_UK', 'NO ACTION'),
+          ('HR', 'FK_COUNT', 'CHILD', 'R', 'HR', 'PARENT_PK', 'NO ACTION');
+        INSERT INTO constraint_columns (owner, constraint_name, column_name, position)
+          VALUES ('HR', 'PARENT_PK', 'ID', 1), ('HR', 'PARENT_CODE_UK', 'CODE', 1),
+                 ('HR', 'CHILD_PK', 'ID', 1),
+                 ('HR', 'FK_NUMERIC', 'P_ID', 1), ('HR', 'FK_NARROW', 'Q_ID', 1),
+                 ('HR', 'FK_CHARS', 'CODE', 1),
+                 ('HR', 'FK_COUNT', 'X_ID', 1), ('HR', 'FK_COUNT', 'Q_ID', 2);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(db)
+    sql = result.sql
+    # integer referencing bigint compares through the key; the rest cannot
+    assert "ADD CONSTRAINT fk_narrow FOREIGN KEY (q_id) REFERENCES parent (id)" in sql
+    reasons = {
+        r.object_name: r.reason for r in result.residue if r.kind == "foreign key"
+    }
+    assert "numeric while the referenced ID maps to bigint" in reasons["FK_NUMERIC"]
+    assert "varchar(3) while the referenced CODE maps to char(3)" in reasons["FK_CHARS"]
+    assert "2 columns reference a key of 1" in reasons["FK_COUNT"]
+    for name in ("fk_numeric", "fk_chars", "fk_count"):
+        assert name not in sql
+
+
+def test_defaults_that_postgres_cannot_evaluate_decline(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'DEPT', 'FLAG', 3, 'CHAR', 1, NULL, NULL, 'Y'),
+          ('HR', 'DEPT', 'OWNER_UID', 4, 'NUMBER', 22, 10, 0, 'Y'),
+          ('HR', 'DEPT', 'WHO', 5, 'VARCHAR2', 128, NULL, NULL, 'Y');
+        INSERT INTO column_defaults (owner, table_name, column_name, default_text,
+                                     virtual, truncated) VALUES
+          ('HR', 'DEPT', 'FLAG', char(39) || 'LONGER' || char(39), 'NO', 0),
+          ('HR', 'DEPT', 'OWNER_UID', 'UID', 'NO', 0),
+          ('HR', 'DEPT', 'WHO', 'USER', 'NO', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    sql = result.sql
+    assert "who varchar(128) DEFAULT CURRENT_USER" in sql
+    assert "flag char(1)," in sql and "LONGER" not in sql
+    assert "owner_uid bigint," in sql
+    notes = {r.object_name: r.reason for r in result.residue if r.kind == "note"}
+    assert "longer than the column" in notes["DEPT.FLAG"]
+    assert "UID, a column or Oracle pseudo-column" in notes["DEPT.OWNER_UID"]

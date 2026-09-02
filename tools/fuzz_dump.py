@@ -720,15 +720,18 @@ class Estate:
         if dtype in NUMERIC:
             pool = ["0 ", "1.5 ", "-1 ", "NULL "]
         elif dtype in TEXTUAL:
-            pool = [
-                "'N' ",
-                "USER ",
-                "'O''Brien' ",
-                "TO_CHAR(SYSDATE, 'YYYY') ",
-                "SYS_CONTEXT('USERENV', 'SESSION_USER') ",
-                "sys_guid() ",
-                "NULL ",
-            ]
+            # Sized to the column: Oracle accepts an oversized default at
+            # CREATE and fails the row; that is not the shape to fuzz.
+            width = (c.length or 0) // (2 if dtype.startswith("N") else 1)
+            pool = ["'N' ", "NULL "]
+            if width >= 8:
+                pool += ["'O''Brien' ", "TO_CHAR(SYSDATE, 'YYYY') "]
+            if width >= 32:
+                pool += [
+                    "USER ",
+                    "SYS_CONTEXT('USERENV', 'SESSION_USER') ",
+                    "sys_guid() ",
+                ]
         elif dtype == "DATE" or dtype.startswith("TIMESTAMP"):
             pool = [
                 "SYSDATE ",
@@ -841,13 +844,26 @@ class Estate:
             )
             self.add("constraint_columns.csv", OWNER, cname, col, 1)
 
-    def fk_column(self, table: Table, tag: str) -> str:
+    def fk_column(self, table: Table, tag: str, like: Column | None = None) -> str:
+        """A referencing column, typed like the referenced one, as
+        Oracle requires."""
         base = f"{tag}_ID"
         existing = {c.name for c in table.columns}
         name = base
         while name in existing:
             name = f"{base}_{self.rng.randrange(1, 99)}"
-        col = Column(name, "NUMBER", 22, 10, 0, True, "NUMBER(10,0)")
+        if like is None:
+            col = Column(name, "NUMBER", 22, 10, 0, True, "NUMBER(10,0)")
+        else:
+            col = Column(
+                name,
+                like.data_type,
+                like.length,
+                like.precision,
+                like.scale,
+                True,
+                like.ddl,
+            )
         table.columns.append(col)
         self.add(
             "columns.csv",
@@ -855,10 +871,10 @@ class Estate:
             table.name,
             name,
             len(table.columns),
-            "NUMBER",
-            22,
-            10,
-            0,
+            col.data_type,
+            col.length,
+            col.precision,
+            col.scale,
             "Y",
         )
         return name
@@ -874,7 +890,8 @@ class Estate:
         rng = self.rng
         tag = "PARENT" if self_ref else parent.name[:12].replace(" ", "_")
         cname = self.unique(f"FK_{table.name}_{tag}"[:120])
-        cols = [self.fk_column(table, tag) for _ in ref_cols]
+        by_name = {c.name: c for c in parent.columns}
+        cols = [self.fk_column(table, tag, by_name.get(ref)) for ref in ref_cols]
         if rng.random() < 0.05:
             # Column count that does not match the referenced key.
             cols.append(self.fk_column(table, tag + "_X"))
@@ -1794,10 +1811,24 @@ class Estate:
         return manifest
 
     def corrupt(self, out: Path, manifest: Manifest) -> None:
-        """Hostile spools: what real client dumps actually contain."""
+        """Hostile spools: what real client dumps actually contain.
+
+        Each spool suffers at most one fate, so the runner's expectation
+        for it stays well defined.
+        """
         rng = self.rng
+        touched: set[str] = set()
+
+        def pick(candidates: list[str]) -> str | None:
+            free = [c for c in candidates if c not in touched]
+            if not free:
+                return None
+            chosen = rng.choice(free)
+            touched.add(chosen)
+            return chosen
+
         if rng.random() < 0.35:
-            spool = rng.choice(
+            spool = pick(
                 [
                     "grants.csv",
                     "plan_management.csv",
@@ -1807,30 +1838,33 @@ class Estate:
                     "feature_usage.csv",
                 ]
             )
-            (out / spool).write_text(ERROR_SPOOL, encoding="utf-8", newline="\n")
-            manifest.error_spools.append(spool)
+            if spool:
+                (out / spool).write_text(ERROR_SPOOL, encoding="utf-8", newline="\n")
+                manifest.error_spools.append(spool)
         if rng.random() < 0.25:
-            spool = rng.choice(["table_comments.csv", "column_comments.csv"])
-            path = out / spool
-            text = path.read_text(encoding="utf-8")
-            hangul = "\uc9c1\uc6d0 \uba85\ub2e8 \ubcf4\uace0\uc11c"
-            while True:
-                data = (text + hangul).encode("cp949", errors="replace")
-                try:
-                    data.decode("utf-8")
-                except UnicodeDecodeError:
-                    break
-                hangul += "\ud55c\uae00"
-            path.write_bytes(data)
-            manifest.lossy_spools.append(spool)
+            spool = pick(["table_comments.csv", "column_comments.csv"])
+            if spool:
+                path = out / spool
+                text = path.read_text(encoding="utf-8")
+                hangul = "\uc9c1\uc6d0 \uba85\ub2e8 \ubcf4\uace0\uc11c"
+                while True:
+                    data = (text + hangul).encode("cp949", errors="replace")
+                    try:
+                        data.decode("utf-8")
+                    except UnicodeDecodeError:
+                        break
+                    hangul += "\ud55c\uae00"
+                path.write_bytes(data)
+                manifest.lossy_spools.append(spool)
         if rng.random() < 0.25:
-            spool = rng.choice(["columns.csv", "source.csv", "index_columns.csv"])
-            path = out / spool
-            data = path.read_bytes()
-            path.write_bytes(data[: max(len(data) - 37, 0)])
-            manifest.torn_spools.append(spool)
+            spool = pick(["columns.csv", "source.csv", "index_columns.csv"])
+            if spool:
+                path = out / spool
+                data = path.read_bytes()
+                path.write_bytes(data[: max(len(data) - 37, 0)])
+                manifest.torn_spools.append(spool)
         if rng.random() < 0.2:
-            spool = rng.choice(
+            spool = pick(
                 [
                     "part_partitions.csv",
                     "index_expressions.csv",
@@ -1839,8 +1873,9 @@ class Estate:
                     "dependencies.csv",
                 ]
             )
-            (out / spool).unlink()
-            manifest.missing_spools.append(spool)
+            if spool:
+                (out / spool).unlink()
+                manifest.missing_spools.append(spool)
 
 
 def generate(seed: int, out: Path) -> Manifest:

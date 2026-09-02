@@ -52,6 +52,13 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   over a date column or date expression decline in defaults, index
   expressions, and check conditions; an index expression that parses
   as an alias declines instead of shipping as nonsense.
+- Foreign keys whose columns map to types PostgreSQL cannot compare
+  through the key (NUMBER against NUMBER(10) lands as numeric against
+  bigint, VARCHAR2 against CHAR as text against char), or whose column
+  count differs from the referenced key, decline by name. USER in an
+  expression becomes current_user; a default that refers to a column
+  or an untranslated pseudo-column, or a string literal longer than
+  its column, declines instead of shipping DDL PostgreSQL rejects.
 - The bundled example dump is regenerated from the Oracle-loop job:
   35 spool files including grants, comments, character set, license
   posture, feature usage, partition bounds, sequences, and column

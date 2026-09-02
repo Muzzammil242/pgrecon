@@ -227,8 +227,14 @@ def apply_live(conninfo: str, seed: int, sql_path: Path) -> str | None:
         text=True,
     )
     if proc.returncode != 0:
-        lines = [line for line in proc.stderr.strip().splitlines() if line.strip()]
-        return " | ".join(lines[-3:]) if lines else "psql failed without a message"
+        # Truncation notices are expected and noisy; the error and its
+        # detail lines are what a reader needs.
+        lines = [
+            line.strip()
+            for line in proc.stderr.splitlines()
+            if line.strip() and "NOTICE:" not in line
+        ]
+        return " | ".join(lines[-4:]) if lines else "psql failed without a message"
     return None
 
 

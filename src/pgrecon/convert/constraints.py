@@ -14,6 +14,7 @@ from pgrecon.convert.identifiers import (
 from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
 from pgrecon.convert.tables import _date_columns
+from pgrecon.convert.typemap import fk_compatible, map_type
 
 _NOT_NULL_CONDITION = re.compile(
     r'^"?[A-Za-z0-9_$#]+"?\s+IS\s+NOT\s+NULL$', re.IGNORECASE
@@ -59,6 +60,68 @@ def _constraint_guard(
                 " partitioned table to include every partition key;"
                 f" {uncovered[0]} is missing - widen the key or"
                 " enforce uniqueness another way"
+            )
+    return None
+
+
+def _mapped_types(
+    conn: sqlite3.Connection, owner: str, table: str, columns: list[str]
+) -> list[str | None]:
+    types: list[str | None] = []
+    for name in columns:
+        row = conn.execute(
+            "SELECT data_type, data_length, data_precision, data_scale FROM columns"
+            " WHERE owner = ? AND table_name = ? AND UPPER(column_name) = ?",
+            (owner, table, name.upper()),
+        ).fetchone()
+        if row is None:
+            types.append(None)
+            continue
+        types.append(
+            map_type(
+                row["data_type"],
+                row["data_length"],
+                row["data_precision"],
+                row["data_scale"],
+            ).pg_type
+        )
+    return types
+
+
+def _fk_type_guard(
+    conn: sqlite3.Connection,
+    owner: str,
+    table: str,
+    columns: list[str],
+    ref_owner: str,
+    ref_table: str,
+    ref_columns: list[str],
+) -> str | None:
+    """Why a foreign key cannot be implemented on PostgreSQL, or None.
+
+    Oracle checks that referencing and referenced columns are
+    compatible in its own type system; after mapping, a NUMBER child
+    against a NUMBER(10) parent is numeric against bigint, which
+    PostgreSQL rejects, and a column count that differs from the
+    referenced key never applied anywhere.
+    """
+    if len(columns) != len(ref_columns):
+        return (
+            f"{len(columns)} columns reference a key of {len(ref_columns)};"
+            " the constraint facts disagree - recreate it from the source"
+        )
+    child_types = _mapped_types(conn, owner, table, columns)
+    parent_types = _mapped_types(conn, ref_owner, ref_table, ref_columns)
+    for col, child, ref_col, parent in zip(
+        columns, child_types, ref_columns, parent_types, strict=True
+    ):
+        if child is None or parent is None:
+            continue
+        if not fk_compatible(child, parent):
+            return (
+                f"column {col} maps to {child} while the referenced {ref_col}"
+                f" maps to {parent}; PostgreSQL cannot compare them through"
+                " the key - align the types by hand"
             )
     return None
 
@@ -351,10 +414,22 @@ def _emit_foreign_keys(
                 )
             )
             continue
-        reason = _constraint_guard(
-            conn, r["owner"], r["table_name"], raw, emitted, unique=False
-        ) or _constraint_guard(
-            conn, r["ref_owner"], ref["table_name"], ref_raw, emitted, unique=False
+        reason = (
+            _constraint_guard(
+                conn, r["owner"], r["table_name"], raw, emitted, unique=False
+            )
+            or _constraint_guard(
+                conn, r["ref_owner"], ref["table_name"], ref_raw, emitted, unique=False
+            )
+            or _fk_type_guard(
+                conn,
+                r["owner"],
+                r["table_name"],
+                raw,
+                r["ref_owner"],
+                ref["table_name"],
+                ref_raw,
+            )
         )
         if reason is not None:
             residue.append(

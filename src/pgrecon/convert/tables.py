@@ -5,6 +5,7 @@ import sqlite3
 
 from pgrecon.convert.identifiers import (
     _date_function_guard,
+    _default_column_guard,
     _default_guard,
     _fold_expression,
     ident,
@@ -28,6 +29,30 @@ _SEQUENCE_DEFAULT = re.compile(
 )
 # LOB initializers: an empty, non-null value of the target type.
 _EMPTY_LOBS = {"EMPTY_CLOB()": "''", "EMPTY_BLOB()": "''::bytea"}
+
+
+_STRING_LITERAL = re.compile(r"^'((?:[^']|'')*)'$")
+
+
+def _literal_length_guard(folded: str, column: sqlite3.Row) -> str | None:
+    """A string default longer than its column: Oracle accepts the
+    table and rejects the row; PostgreSQL rejects the table."""
+    m = _STRING_LITERAL.match(folded.strip())
+    if m is None:
+        return None
+    dtype = (column["data_type"] or "").upper()
+    length = column["data_length"]
+    if dtype not in ("VARCHAR2", "NVARCHAR2", "CHAR", "NCHAR") or not length:
+        return None
+    chars = len(m.group(1).replace("''", "'"))
+    if dtype.startswith("N"):
+        length = length // 2
+    if chars > length:
+        return (
+            f"default literal is {chars} characters, longer than the column;"
+            " Oracle would reject the row, PostgreSQL rejects the table"
+        )
+    return None
 
 
 def _date_columns(conn: sqlite3.Connection, owner: str, table: str) -> set[str]:
@@ -277,6 +302,8 @@ def emit_tables(
                         if folded is None
                         else _default_guard(folded)
                         or _date_function_guard(folded, date_cols)
+                        or _default_column_guard(folded)
+                        or _literal_length_guard(folded, c)
                     )
                     if folded is None or guard is not None:
                         residue.append(
