@@ -147,8 +147,11 @@ def _emit_keys(
     emitted: dict[tuple[str, str], set[str]],
     names: NameRegistry,
     matviews: set[str] | None = None,
-) -> int:
+) -> tuple[int, set[tuple[str, str]]]:
+    """Primary and unique keys; returns the count and the (owner, name)
+    pairs that were actually emitted, which foreign keys must point at."""
     count = 0
+    created: set[tuple[str, str]] = set()
     rows = conn.execute(
         "SELECT owner, constraint_name, table_name, type FROM constraints"
         " WHERE type IN ('P', 'U') ORDER BY type, owner, table_name, constraint_name"
@@ -225,10 +228,11 @@ def _emit_keys(
             f"ALTER TABLE {ident(r['table_name'])} ADD CONSTRAINT"
             f" {name} {kind} ({cols});"
         )
+        created.add((r["owner"], r["constraint_name"]))
         count += 1
     if rows:
         out.append("")
-    return count
+    return count, created
 
 
 def _emit_checks(
@@ -337,6 +341,19 @@ def _emit_checks(
                 )
             )
             continue
+        present = {c.upper() for c in emitted[(r["owner"], r["table_name"])]}
+        unknown = sorted(referenced - present)
+        if unknown:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["constraint_name"],
+                    "check",
+                    f"condition references {unknown[0]}, which is not a column"
+                    " of the converted table",
+                )
+            )
+            continue
         if not names.claim(
             r["constraint_name"] or "",
             "check",
@@ -363,6 +380,7 @@ def _emit_foreign_keys(
     emitted: dict[tuple[str, str], set[str]],
     names: NameRegistry,
     matviews: set[str] | None = None,
+    emitted_keys: set[tuple[str, str]] | None = None,
 ) -> int:
     count = 0
     rows = conn.execute(
@@ -411,6 +429,20 @@ def _emit_foreign_keys(
                     "foreign key",
                     "references a materialized view, which cannot carry"
                     " the referenced unique constraint in PostgreSQL",
+                )
+            )
+            continue
+        if (
+            emitted_keys is not None
+            and (r["ref_owner"], r["ref_constraint"]) not in emitted_keys
+        ):
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["constraint_name"],
+                    "foreign key",
+                    f"the referenced key {r['ref_constraint']} was not"
+                    " converted, so there is nothing to point at",
                 )
             )
             continue

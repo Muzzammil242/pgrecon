@@ -97,11 +97,14 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
     )
     mview_count = _emit_mviews(conn, out, residue, emitted, dropped, set(), names)
 
-    constraint_count += _emit_keys(conn, out, residue, emitted, names, mv_names)
+    key_count, emitted_keys = _emit_keys(conn, out, residue, emitted, names, mv_names)
+    constraint_count += key_count
     constraint_count += _emit_checks(
         conn, out, residue, emitted, dropped, names, mv_names
     )
-    constraint_count += _emit_foreign_keys(conn, out, residue, emitted, names, mv_names)
+    constraint_count += _emit_foreign_keys(
+        conn, out, residue, emitted, names, mv_names, emitted_keys
+    )
     index_count = _emit_indexes(conn, out, residue, emitted, names)
     view_count, created_views = _emit_views(conn, out, residue, emitted, dropped, names)
     synonym_count, synonym_names = _emit_synonyms(

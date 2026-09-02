@@ -114,6 +114,11 @@ def _emit_indexes(
                     " recreate the index from the source"
                 )
                 break
+            elif (c["column_name"] or "").upper() not in {
+                k.upper() for k in emitted[(r["owner"], r["table_name"])]
+            }:
+                skip_reason = f"column {c['column_name']} was not converted"
+                break
             else:
                 parts.append(ident(c["column_name"]))
         if skip_reason is not None or not parts:

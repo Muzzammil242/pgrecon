@@ -8,6 +8,7 @@ from pgrecon.convert.identifiers import (
     _default_column_guard,
     _default_guard,
     _fold_expression,
+    _referenced_columns,
     ident,
     over_limit,
     truncation_clash,
@@ -172,6 +173,9 @@ def emit_tables(
         lines: list[str] = []
         kept_columns: set[str] = set()
         virtual_columns: set[str] = set()
+        all_virtual = {
+            name for name, r in extras.items() if (r["virtual"] or "NO") == "YES"
+        }
         date_cols = _date_columns(conn, owner, table)
         for c in cols:
             mapped = map_type(
@@ -222,6 +226,17 @@ def emit_tables(
                     if expr is None
                     else _default_guard(expr) or _date_function_guard(expr, date_cols)
                 )
+                if expr is not None and guard is None:
+                    # PostgreSQL generated columns cannot read one another.
+                    chained = sorted(
+                        (_referenced_columns(expr) or set()) & (all_virtual - {cname})
+                    )
+                    if chained:
+                        guard = (
+                            f"expression reads virtual column {chained[0]};"
+                            " PostgreSQL generated columns cannot reference one"
+                            " another - inline the expression by hand"
+                        )
                 if expr is None or guard is not None:
                     residue.append(
                         Residue(

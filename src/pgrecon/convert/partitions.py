@@ -37,6 +37,24 @@ def _bound_to_pg(value: str | None) -> str | None:
     return v
 
 
+def _key_count(
+    conn: sqlite3.Connection, owner: str, table: str, fact_table: str
+) -> int:
+    row = conn.execute(
+        f"SELECT COUNT(*) FROM {fact_table} WHERE owner = ? AND table_name = ?",
+        (owner, table),
+    ).fetchone()
+    return max(int(row[0]) if row else 1, 1)
+
+
+def _widen_maxvalue(high_value: str | None, key_count: int) -> str | None:
+    """Oracle spells a multi-column open upper bound per column; a bare
+    MAXVALUE against several key columns needs one per column."""
+    if high_value and high_value.strip().upper() == "MAXVALUE" and key_count > 1:
+        return ", ".join(["MAXVALUE"] * key_count)
+    return high_value
+
+
 def _part_keys(
     conn: sqlite3.Connection, owner: str, table: str, fact_table: str
 ) -> str:
@@ -136,7 +154,9 @@ def _emit_partition_children(
         return 0
 
     statements: list[str] = []
-    prev = "MINVALUE"
+    # A range floor names one value per key column.
+    key_count = _key_count(conn, owner, table, "part_key_columns")
+    prev = ", ".join(["MINVALUE"] * key_count)
     for p in parts:
         child = f"{table}_{p['partition_name']}"
         if len(child) > 63:
@@ -166,7 +186,7 @@ def _emit_partition_children(
         names.claim(child, "partition child", owner, residue)
         spec, prev = _child_spec(
             meta.ptype,
-            p["high_value"],
+            _widen_maxvalue(p["high_value"], key_count),
             p["truncated"],
             p["position"] or 1,
             len(parts),
@@ -206,7 +226,8 @@ def _emit_partition_children(
                     )
                 )
                 return 0
-            sub_prev = "MINVALUE"
+            sub_keys = _key_count(conn, owner, table, "part_subkey_columns")
+            sub_prev = ", ".join(["MINVALUE"] * sub_keys)
             for s in subs:
                 sub_child = f"{table}_{p['partition_name']}_{s['subpartition_name']}"
                 if len(sub_child) > 63:
@@ -237,7 +258,7 @@ def _emit_partition_children(
                 names.claim(sub_child, "partition child", owner, residue)
                 sub_spec, sub_prev = _child_spec(
                     meta.subtype,
-                    s["high_value"],
+                    _widen_maxvalue(s["high_value"], sub_keys),
                     s["truncated"],
                     s["position"] or 1,
                     len(subs),

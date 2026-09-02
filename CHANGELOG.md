@@ -59,6 +59,12 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   expression becomes current_user; a default that refers to a column
   or an untranslated pseudo-column, or a string literal longer than
   its column, declines instead of shipping DDL PostgreSQL rejects.
+- Indexes and check conditions over a column the converted table does
+  not have decline by name, as do foreign keys whose referenced key
+  was itself declined, virtual columns that read another virtual
+  column, and materialized views whose container repeats a column
+  name; a multi-column range partition now bounds every key column
+  in its floors and its open upper bound.
 - The bundled example dump is regenerated from the Oracle-loop job:
   35 spool files including grants, comments, character set, license
   posture, feature usage, partition bounds, sequences, and column

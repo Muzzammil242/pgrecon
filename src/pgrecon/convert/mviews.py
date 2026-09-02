@@ -107,6 +107,35 @@ def _emit_mviews(
                 )
             )
             continue
+        # The container's column list names the query's outputs one for
+        # one; a query that yields a different number, or names two
+        # outputs alike, cannot be mounted under that list.
+        outputs = list(tree.expressions)
+        if not any(isinstance(e, exp.Star) for e in outputs):
+            if len(outputs) != len(columns):
+                residue.append(
+                    Residue(
+                        owner,
+                        raw,
+                        "materialized view",
+                        f"the defining query yields {len(outputs)} columns but"
+                        f" the container has {len(columns)}; recreate the view"
+                        " by hand",
+                    )
+                )
+                continue
+            aliases = [(e.alias_or_name or "").upper() for e in outputs]
+            if len(set(aliases)) != len(aliases):
+                residue.append(
+                    Residue(
+                        owner,
+                        raw,
+                        "materialized view",
+                        "the defining query names two output columns alike;"
+                        " recreate the view with distinct aliases",
+                    )
+                )
+                continue
         guard = _view_guard(tree, name, emitted, dropped, created_views)
         if guard is not None:
             residue.append(Residue(owner, raw, "materialized view", guard))

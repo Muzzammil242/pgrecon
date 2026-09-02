@@ -436,6 +436,7 @@ class Estate:
         self.rng.shuffle(self.reserved_left)
         self.sys_counter = 8000
         self.objects: list[tuple[str, str, str]] = []
+        self.virtual: dict[str, set[str]] = {}
 
     # -- helpers ---------------------------------------------------------
 
@@ -767,22 +768,28 @@ class Estate:
             text = f"{q(OWNER)}.{q(seq)}.nextval"
             self.add("column_defaults.csv", OWNER, table.name, c.name, text, "NO", 0)
         elif roll < 0.30:
+            # A virtual column reads earlier plain columns only: Oracle
+            # refuses one virtual column over another.
+            earlier = table.columns[: table.columns.index(c)]
+            virtual = self.virtual.setdefault(table.name, set())
             others = [
-                o
-                for o in table.columns
-                if o is not c and o.data_type in NUMERIC and o.name != c.name
+                o for o in earlier if o.data_type in NUMERIC and o.name not in virtual
             ]
             if dtype in NUMERIC and others:
                 text = f"{q(others[0].name)} * 2"
+                virtual.add(c.name)
                 self.add(
                     "column_defaults.csv", OWNER, table.name, c.name, text, "YES", 0
                 )
             elif dtype in TEXTUAL:
                 texts = [
-                    o for o in table.columns if o is not c and o.data_type in TEXTUAL
+                    o
+                    for o in earlier
+                    if o.data_type in TEXTUAL and o.name not in virtual
                 ]
                 if texts:
                     text = f"UPPER({q(texts[0].name)})"
+                    virtual.add(c.name)
                     self.add(
                         "column_defaults.csv",
                         OWNER,
@@ -1053,7 +1060,16 @@ class Estate:
     def add_partitioning(self, table: Table) -> None:
         rng = self.rng
         name = table.name
-        dat, num, txt = table.dated(), table.numeric(), table.textual()
+        dat, num = table.dated(), table.numeric()
+        # List bounds must fit the key column, as Oracle insists.
+        txt = next(
+            (
+                c
+                for c in table.columns
+                if c.data_type in TEXTUAL and (c.length or 0) >= 8
+            ),
+            None,
+        )
         kinds = []
         if dat:
             kinds.append("RANGE_DATE")
@@ -1302,15 +1318,18 @@ class Estate:
             name = self.unique(f"MV_{base.name}_{i}"[:120])
             self.obj(name, "MATERIALIZED VIEW")
             self.obj(name, "TABLE")
+            # Aliases that cannot repeat the grouping column's name.
+            cnt = "HEADCOUNT" if txt.name.upper() != "HEADCOUNT" else "HEADCOUNT_2"
+            tot = "TOTAL" if txt.name.upper() != "TOTAL" else "TOTAL_2"
             if rng.random() < 0.3:
                 query = (
-                    f"SELECT {q(txt.name)}, COUNT(*) AS HEADCOUNT, 0 AS TOTAL"
+                    f"SELECT {q(txt.name)}, COUNT(*) AS {cnt}, 0 AS {tot}"
                     f" FROM {q(OWNER)}.NOPE"
                 )
             else:
                 query = (
-                    f"SELECT {q(txt.name)}, COUNT(*) AS HEADCOUNT,"
-                    f" SUM({q(num.name)}) AS TOTAL\n  FROM {q(base.name)}\n"
+                    f"SELECT {q(txt.name)}, COUNT(*) AS {cnt},"
+                    f" SUM({q(num.name)}) AS {tot}\n  FROM {q(base.name)}\n"
                     f" GROUP BY {q(txt.name)}"
                 )
             self.add(
@@ -1323,7 +1342,7 @@ class Estate:
             )
             self.add("tables.csv", OWNER, name, 12, 40, "NO", "N", "         1")
             for pos, (col, dtype) in enumerate(
-                ((txt.name, txt), ("HEADCOUNT", None), ("TOTAL", None)), start=1
+                ((txt.name, txt), (cnt, None), (tot, None)), start=1
             ):
                 self.add(
                     "columns.csv",

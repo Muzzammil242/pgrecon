@@ -268,7 +268,7 @@ def _emit_comments(
         kept = emitted.get((r["owner"], raw))
         if name in matviews or name in created_views:
             pass  # matview and view columns exist; comment applies
-        elif kept is None or raw_col not in kept:
+        elif kept is None or raw_col.upper() not in kept:
             continue
         text = (r["comments"] or "").replace("'", "''")
         out.append(f"COMMENT ON COLUMN {ident(raw)}.{ident(raw_col)} IS '{text}';")

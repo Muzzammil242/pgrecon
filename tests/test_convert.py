@@ -86,6 +86,7 @@ def facts_db(tmp_path: Path) -> Path:
           ('HR', 'EMP',  'DEPT_ID',  2, 'NUMBER',   22, 4,  0, 'Y'),
           ('HR', 'EMP',  'HIRED',    3, 'DATE',     7,  NULL, NULL, 'Y'),
           ('HR', 'EMP',  'SALARY',   4, 'NUMBER',   22, 8,  2, 'Y'),
+          ('HR', 'EMP',  'ENAME',    5, 'VARCHAR2', 50, NULL, NULL, 'Y'),
           ('HR', 'SCANS', 'SCAN_ID', 1, 'NUMBER',   22, 10, 0, 'N'),
           ('HR', 'SCANS', 'DOC',     2, 'BFILE',    530, NULL, NULL, 'Y');
         INSERT INTO constraints
@@ -1333,3 +1334,164 @@ def test_defaults_that_postgres_cannot_evaluate_decline(facts_db: Path) -> None:
     notes = {r.object_name: r.reason for r in result.residue if r.kind == "note"}
     assert "longer than the column" in notes["DEPT.FLAG"]
     assert "UID, a column or Oracle pseudo-column" in notes["DEPT.OWNER_UID"]
+
+
+def test_foreign_key_to_a_key_that_did_not_convert_declines(tmp_path: Path) -> None:
+    """The parent's key is refused (a partitioned table whose key misses
+    the partition column), so the foreign key has nothing to point at."""
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary) VALUES
+          ('HR', 'PARENT', 'N'), ('HR', 'CHILD', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'PARENT', 'ID',     1, 'NUMBER', 22, 10, 0, 'N'),
+          ('HR', 'PARENT', 'REGION', 2, 'NUMBER', 22, 3, 0, 'N'),
+          ('HR', 'CHILD',  'ID',     1, 'NUMBER', 22, 10, 0, 'N'),
+          ('HR', 'CHILD',  'P_ID',   2, 'NUMBER', 22, 10, 0, 'Y');
+        INSERT INTO constraints (owner, constraint_name, table_name, type, ref_owner,
+                                 ref_constraint, delete_rule) VALUES
+          ('HR', 'PARENT_PK', 'PARENT', 'P', NULL, NULL, NULL),
+          ('HR', 'CHILD_PK', 'CHILD', 'P', NULL, NULL, NULL),
+          ('HR', 'CHILD_FK', 'CHILD', 'R', 'HR', 'PARENT_PK', 'NO ACTION');
+        INSERT INTO constraint_columns (owner, constraint_name, column_name, position)
+          VALUES ('HR', 'PARENT_PK', 'ID', 1), ('HR', 'CHILD_PK', 'ID', 1),
+                 ('HR', 'CHILD_FK', 'P_ID', 1);
+        INSERT INTO part_tables (owner, table_name, partitioning_type,
+                                 subpartitioning_type, partition_count, interval)
+          VALUES ('HR', 'PARENT', 'HASH', 'NONE', 2, NULL);
+        INSERT INTO part_key_columns (owner, table_name, column_name, position)
+          VALUES ('HR', 'PARENT', 'REGION', 1);
+        INSERT INTO part_partitions (owner, table_name, partition_name, position,
+                                     high_value, truncated)
+          VALUES ('HR', 'PARENT', 'P1', 1, NULL, 0), ('HR', 'PARENT', 'P2', 2, NULL, 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(db)
+    assert "parent_pk" not in result.sql and "child_fk" not in result.sql
+    reasons = {r.object_name: r.reason for r in result.residue}
+    assert "every partition key" in reasons["PARENT_PK"]
+    assert "referenced key PARENT_PK was not converted" in reasons["CHILD_FK"]
+
+
+def test_index_and_check_over_missing_columns_decline(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO indexes (owner, index_name, table_name, index_type, uniqueness,
+                             generated)
+          VALUES ('HR', 'EMP_GHOST_IX', 'EMP', 'NORMAL', 'NONUNIQUE', 'N');
+        INSERT INTO index_columns (owner, index_name, column_name, position)
+          VALUES ('HR', 'EMP_GHOST_IX', 'EMP_ID', 1),
+                 ('HR', 'EMP_GHOST_IX', 'GHOST', 2);
+        INSERT INTO constraints (owner, constraint_name, table_name, type)
+          VALUES ('HR', 'EMP_GHOST_CK', 'EMP', 'C');
+        INSERT INTO check_conditions (owner, constraint_name, condition, truncated)
+          VALUES ('HR', 'EMP_GHOST_CK', '"GHOST" > 0', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    assert "emp_ghost_ix" not in result.sql and "emp_ghost_ck" not in result.sql
+    reasons = {r.object_name: r.reason for r in result.residue}
+    assert "column GHOST was not converted" in reasons["EMP_GHOST_IX"]
+    assert "GHOST, which is not a column" in reasons["EMP_GHOST_CK"]
+
+
+def test_multi_column_range_partitions_bound_every_column(tmp_path: Path) -> None:
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary) VALUES ('HR', 'SALES', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'SALES', 'YEAR', 1, 'NUMBER', 22, 4, 0, 'N'),
+          ('HR', 'SALES', 'REGION', 2, 'VARCHAR2', 10, NULL, NULL, 'N');
+        INSERT INTO part_tables (owner, table_name, partitioning_type,
+                                 subpartitioning_type, partition_count, interval)
+          VALUES ('HR', 'SALES', 'RANGE', 'NONE', 2, NULL);
+        INSERT INTO part_key_columns (owner, table_name, column_name, position)
+          VALUES ('HR', 'SALES', 'YEAR', 1), ('HR', 'SALES', 'REGION', 2);
+        INSERT INTO part_partitions (owner, table_name, partition_name, position,
+                                     high_value, truncated)
+          VALUES ('HR', 'SALES', 'P_EARLY', 1,
+                  '2020, ' || char(39) || 'M' || char(39), 0),
+                 ('HR', 'SALES', 'P_REST', 2, 'MAXVALUE', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    sql = convert_schema(db).sql
+    assert "PARTITION BY RANGE (year, region)" in sql
+    assert "FOR VALUES FROM (MINVALUE, MINVALUE) TO (2020, 'M')" in sql
+    assert "FOR VALUES FROM (2020, 'M') TO (MAXVALUE, MAXVALUE)" in sql
+
+
+def test_virtual_column_over_virtual_column_declines(tmp_path: Path) -> None:
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary) VALUES ('HR', 'PRICES', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'PRICES', 'NET',   1, 'NUMBER', 22, 12, 2, 'N'),
+          ('HR', 'PRICES', 'GROSS', 2, 'NUMBER', 22, 12, 2, 'Y'),
+          ('HR', 'PRICES', 'TWICE', 3, 'NUMBER', 22, 12, 2, 'Y');
+        INSERT INTO column_defaults (owner, table_name, column_name, default_text,
+                                     virtual, truncated) VALUES
+          ('HR', 'PRICES', 'GROSS', '"NET" * 1.2', 'YES', 0),
+          ('HR', 'PRICES', 'TWICE', '"GROSS" * 2', 'YES', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(db)
+    assert "gross numeric(12,2) GENERATED ALWAYS AS (net * 1.2) STORED" in result.sql
+    assert "twice" not in result.sql
+    reasons = {r.object_name: r.reason for r in result.residue}
+    assert "reads virtual column GROSS" in reasons["PRICES.TWICE"]
+
+
+def test_mview_whose_query_does_not_fit_its_container_declines(
+    facts_db: Path,
+) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO mviews (owner, mview_name, rewrite_enabled, refresh_method, query)
+          VALUES ('HR', 'MV_WIDE', 'N', 'COMPLETE',
+                  'SELECT "DEPT_ID", COUNT(*) AS N, SUM("SALARY") AS TOTAL'
+                  || ' FROM "HR"."EMP" GROUP BY "DEPT_ID"'),
+                 ('HR', 'MV_TWICE', 'N', 'COMPLETE',
+                  'SELECT "DEPT_ID", SUM("SALARY") AS DEPT_ID FROM "HR"."EMP"'
+                  || ' GROUP BY "DEPT_ID"');
+        INSERT INTO tables (owner, table_name, temporary)
+          VALUES ('HR', 'MV_WIDE', 'N'), ('HR', 'MV_TWICE', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'MV_WIDE', 'DEPT_ID', 1, 'NUMBER', 22, 4, 0, 'Y'),
+          ('HR', 'MV_WIDE', 'TOTAL',   2, 'NUMBER', 22, 8, 2, 'Y'),
+          ('HR', 'MV_TWICE', 'DEPT_ID', 1, 'NUMBER', 22, 4, 0, 'Y'),
+          ('HR', 'MV_TWICE', 'DEPT_ID_1', 2, 'NUMBER', 22, 8, 2, 'Y');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    assert "mv_wide" not in result.sql and "mv_twice" not in result.sql
+    reasons = {
+        r.object_name: r.reason for r in result.residue if r.kind == "materialized view"
+    }
+    assert "yields 3 columns but the container has 2" in reasons["MV_WIDE"]
+    assert "two output columns alike" in reasons["MV_TWICE"]
