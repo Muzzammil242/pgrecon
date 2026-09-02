@@ -1113,9 +1113,22 @@ class Estate:
                 ("P_HIGH", "MAXVALUE", 0),
             ]
             if rng.random() < 0.15 and len(table.columns) > 2:
-                other = table.columns[1 if table.columns[1] is not num else 0]
-                key.append(other.name)
-                parts = [("P_A", "100, 'X'", 0), ("P_B", "MAXVALUE, MAXVALUE", 0)]
+                # A second key column with a bound of its own type.
+                other = next(
+                    (
+                        c
+                        for c in table.columns
+                        if c is not num and c.data_type in NUMERIC | TEXTUAL
+                    ),
+                    None,
+                )
+                if other is not None:
+                    key.append(other.name)
+                    second = "200" if other.data_type in NUMERIC else "'X'"
+                    parts = [
+                        ("P_A", f"100, {second}", 0),
+                        ("P_B", "MAXVALUE, MAXVALUE", 0),
+                    ]
         elif kind == "LIST" and txt:
             ptype = "LIST"
             key = [txt.name]

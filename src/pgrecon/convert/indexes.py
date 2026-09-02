@@ -150,8 +150,10 @@ def _emit_indexes(
                 (k["column_name"] or "").upper()
                 for k in conn.execute(
                     "SELECT column_name FROM part_key_columns"
+                    " WHERE owner = ? AND table_name = ?"
+                    " UNION ALL SELECT column_name FROM part_subkey_columns"
                     " WHERE owner = ? AND table_name = ?",
-                    (r["owner"], r["table_name"]),
+                    (r["owner"], r["table_name"], r["owner"], r["table_name"]),
                 )
             ]
             uncovered = [k for k in part_keys if k not in plain]

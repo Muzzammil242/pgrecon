@@ -108,6 +108,23 @@ def _view_guard(
         lost = sorted({c.name.upper() for c in tree.find_all(exp.Column)} & gone)
         if lost:
             return f"references {lost[0]}, a column that was not converted"
+        # Over one table, every column named must be one the converted
+        # table has, or an alias the query itself defines; a spool cut
+        # short can leave a view naming a column that is not there.
+        present: set[str] | None = None
+        for (_owner, t), cols in emitted.items():
+            if t.upper() == sources[0]:
+                present = {c.upper() for c in cols}
+        aliases = {(e.alias or "").upper() for e in tree.find_all(exp.Alias) if e.alias}
+        if present is not None and tree.find(exp.Connect) is None:
+            unknown = sorted(
+                {c.name.upper() for c in tree.find_all(exp.Column)}
+                - present
+                - aliases
+                - {"ROWNUM", "LEVEL", "ROWID", "USER", "SYSDATE"}
+            )
+            if unknown:
+                return f"references {unknown[0]}, which is not a column of {sources[0]}"
     return None
 
 

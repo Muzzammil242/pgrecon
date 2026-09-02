@@ -82,6 +82,11 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   ROUND over a text column decline; an index expression naming a
   column the table does not have declines; a grant option to PUBLIC
   is dropped with a note, since PostgreSQL grants options to roles.
+- Unique keys and unique indexes on a composite-partitioned table must
+  carry the subpartition key as well, since PostgreSQL's children are
+  partitioned tables themselves; a view over one table that names a
+  column the converted table does not have declines instead of
+  shipping a query PostgreSQL rejects.
 - The bundled example dump is regenerated from the Oracle-loop job:
   35 spool files including grants, comments, character set, license
   posture, feature usage, partition bounds, sequences, and column

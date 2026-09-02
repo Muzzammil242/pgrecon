@@ -53,12 +53,16 @@ def _constraint_guard(
                 " class and cannot be a key on PostgreSQL"
             )
     if unique:
+        # Every level of the partition key, since the children are
+        # partitioned tables themselves.
         part_keys = [
             (r["column_name"] or "").upper()
             for r in conn.execute(
                 "SELECT column_name FROM part_key_columns"
+                " WHERE owner = ? AND table_name = ?"
+                " UNION ALL SELECT column_name FROM part_subkey_columns"
                 " WHERE owner = ? AND table_name = ?",
-                (owner, table),
+                (owner, table, owner, table),
             )
         ]
         cols = {c.upper() for c in raw_columns}

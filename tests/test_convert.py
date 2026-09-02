@@ -1653,3 +1653,45 @@ def test_index_expression_over_unknown_column_declines(facts_db: Path) -> None:
     reasons = {r.object_name: r.reason for r in result.residue}
     assert "references SYS_OP, which is not a column" in reasons["EMP_TORN_IX"]
     assert "TRUNC over text column ENAME" in reasons["EMP_TRUNC_TEXT_IX"]
+
+
+def test_unique_key_on_composite_partition_needs_the_subkey(parts_db: Path) -> None:
+    conn = sqlite3.connect(parts_db)
+    conn.executescript(
+        """
+        INSERT INTO constraints (owner, constraint_name, table_name, type)
+          VALUES ('HR', 'LH_CODE_UK', 'LH', 'U'), ('HR', 'LH_BOTH_UK', 'LH', 'U');
+        INSERT INTO constraint_columns (owner, constraint_name, column_name, position)
+          VALUES ('HR', 'LH_CODE_UK', 'CODE', 1),
+                 ('HR', 'LH_BOTH_UK', 'CODE', 1), ('HR', 'LH_BOTH_UK', 'ID', 2);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(parts_db)
+    assert "ADD CONSTRAINT lh_both_uk UNIQUE (code, id);" in result.sql
+    assert "lh_code_uk" not in result.sql
+    reasons = {r.object_name: r.reason for r in result.residue}
+    assert "ID is missing" in reasons["LH_CODE_UK"]
+
+
+def test_view_over_a_column_the_table_lacks_declines(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality) VALUES
+          ('HR', 'V_TORN', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_TORN" AS SELECT "EMP_ID", "GHOST"'
+           || ' FROM "HR"."EMP" WHERE NOT "EMP_ID" IS NULL', 1, 'full'),
+          ('HR', 'V_ALIASED', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_ALIASED" AS SELECT "EMP_ID" AS ID,'
+           || ' "SALARY" * 2 AS DOUBLED FROM "HR"."EMP" ORDER BY DOUBLED', 1, 'full');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    assert "v_torn" not in result.sql
+    assert "CREATE OR REPLACE VIEW v_aliased" in result.sql
+    reasons = {r.object_name: r.reason for r in result.residue if r.kind == "view"}
+    assert "GHOST, which is not a column of EMP" in reasons["V_TORN"]
