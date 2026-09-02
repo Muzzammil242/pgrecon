@@ -179,8 +179,6 @@ def emit_tables(
         owner, table = t["owner"], t["table_name"]
         if skip_mviews and (table or "").upper() in skip_mviews:
             continue
-        if not names.claim(table or "", "table", owner, residue):
-            continue
         cols = _columns(conn, owner, table)
         if not cols:
             residue.append(
@@ -199,6 +197,10 @@ def emit_tables(
                     " before migration",
                 )
             )
+            continue
+        # Claimed only now: a table refused above must not leave a
+        # truncation note behind for a relation that never appears.
+        if not names.claim(table or "", "table", owner, residue):
             continue
         extras = {
             (r["column_name"] or "").upper(): r

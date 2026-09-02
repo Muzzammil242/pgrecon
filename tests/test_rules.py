@@ -848,6 +848,6 @@ def test_bundled_dump_headline_numbers(tmp_path: Path) -> None:
     db = tmp_path / "sample.db"
     load_dump(Path("examples/dump_oracle21c"), db)
     summary = summarize(run_rules(db))
-    assert summary["findings"] == 57
-    assert round(summary["effort_points"], 1) == 77.2
+    assert summary["findings"] == 58
+    assert round(summary["effort_points"], 1) == 77.7
     assert summary["by_severity"]["high"] == 10

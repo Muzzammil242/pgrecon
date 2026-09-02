@@ -58,7 +58,7 @@ Output (excerpt):
     medium  R-OBJ-02   NIGHTLY_ROLLUP              scheduler job
     ...
 
-    57 findings (10 high, 18 medium, 16 low, 13 info); effort points 77.2
+    58 findings (10 high, 18 medium, 16 low, 14 info); effort points 77.7
 
 Add `--remedies` to append what to do about each fired rule, or ask
 about one directly: `uv run pgrecon explain R-PKG-01`.
@@ -152,13 +152,13 @@ a rules map for integrations.
 
       baseline and environment       5.0
       schema conversion              1.7
-      finding remediation           73.8
+      finding remediation           74.3
       PL/SQL porting by volume       0.8
       data movement                  0.0
-      development subtotal          81.2
+      development subtotal          81.7
 
     With testing and stabilization:
-      low 106, expected 130, high 179 person-days (5.0 to 8.5 person-months)
+      low 106, expected 131, high 180 person-days (5.1 to 8.6 person-months)
 
 The estimate is a sum of named components, so it can be argued with
 line by line, and it is a range, because a point estimate for a

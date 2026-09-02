@@ -118,6 +118,7 @@ def all_rules() -> list[Rule]:
     from pgrecon.rules import (
         code,
         columns,
+        environment,
         objects,
         packages,
         performance,
@@ -127,6 +128,7 @@ def all_rules() -> list[Rule]:
     )
 
     rules = [
+        *environment.RULES,
         *columns.RULES,
         *storage.RULES,
         *code.RULES,

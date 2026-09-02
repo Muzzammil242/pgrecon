@@ -105,6 +105,10 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   in BYTE semantics in a multibyte database, where the converted
   columns accept more text than Oracle did, and the converter leaves a
   note per affected table; the catalog is at 80 rules.
+- The environment rules (character set, grants) live in their own
+  module; a table refused for a column clash no longer leaves a stray
+  truncation note behind; dependencies refreshed (sqlglot 30.17, ruff
+  0.16.5, mypy 2.3.1) with the hook pin moved alongside.
 - The bundled example dump is regenerated from the Oracle-loop job:
   35 spool files including grants, comments, character set, license
   posture, feature usage, partition bounds, sequences, and column

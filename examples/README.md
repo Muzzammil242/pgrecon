@@ -24,4 +24,4 @@ Load and assess it without any Oracle installation:
     uv run pgrecon load examples/dump_oracle21c --db sample.db
     uv run pgrecon report --db sample.db
 
-Expected result: 33 objects, 57 findings, effort points 77.2.
+Expected result: 33 objects, 58 findings, effort points 77.7.
