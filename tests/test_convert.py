@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 
 from pgrecon.convert import convert_schema, residue_report
-from pgrecon.convert.identifiers import _fold_condition
+from pgrecon.convert.identifiers import (
+    _default_guard,
+    _fold_condition,
+    _fold_expression,
+)
 from pgrecon.convert.schema import ident
 from pgrecon.convert.typemap import map_type
 from pgrecon.inventory import open_db
@@ -261,7 +265,7 @@ def test_object_view_refuses(facts_db: Path) -> None:
 
 
 def test_expression_guards_sysop_and_systimestamp() -> None:
-    from pgrecon.convert.identifiers import _default_guard, _fold_expression
+    from pgrecon.convert.identifiers import _fold_expression
 
     guard = _default_guard("SYS_OP_MAP_NONNULL(dname)")
     assert guard is not None and "SYS_OP_MAP_NONNULL" in guard
@@ -1245,5 +1249,8 @@ def test_trunc_over_dates_declines_where_types_are_known(facts_db: Path) -> None
     assert "date column HIRED" in reasons["EMP_HIRED_CK"]
     assert "date column HIRED" in reasons["EMP_HIRED_DAY_IX"]
     assert "recreate it from the source" in reasons["EMP_HIRED_DESC_IX"]
-    hired_notes = [r.reason for r in result.residue if r.object_name == "EMP.HIRED"]
-    assert any("date expression" in note for note in hired_notes)
+    assert "hired timestamp(0) DEFAULT DATE_TRUNC('day', CURRENT_TIMESTAMP)" in sql
+    assert _fold_expression("TRUNC(SYSDATE, 'IW')") == (
+        "DATE_TRUNC('week', CURRENT_TIMESTAMP)"
+    )
+    assert _fold_expression("TRUNC(SYSDATE, 'W')") is None

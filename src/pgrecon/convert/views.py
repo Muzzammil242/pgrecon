@@ -8,7 +8,7 @@ from sqlglot import Expr, exp
 from sqlglot.errors import ErrorLevel, SqlglotError
 from sqlglot.transforms import eliminate_join_marks
 
-from pgrecon.convert.identifiers import _fold_identifiers, ident
+from pgrecon.convert.identifiers import _fold_identifiers, _trunc_unit_guard, ident
 from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
 from pgrecon.inventory.loader import PARSE_NORMALIZATIONS
@@ -32,6 +32,9 @@ def _view_guard(
     created_views: set[str],
 ) -> str | None:
     """Why a view cannot be emitted faithfully, or None."""
+    unit_guard = _trunc_unit_guard(tree)
+    if unit_guard is not None:
+        return unit_guard
     referenced: list[str] = []
     for node in tree.walk():
         if isinstance(node, exp.Table):

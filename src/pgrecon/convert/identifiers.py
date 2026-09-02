@@ -158,6 +158,77 @@ def _concat_parts(node: Expr) -> list[Expr]:
     return [node]
 
 
+# Oracle TRUNC(date, format) formats that name a date_trunc field.
+# Week formats other than ISO, day-of-week formats, and ISO years have
+# no field and decline.
+_TRUNC_UNITS = {
+    "CC": "century",
+    "SCC": "century",
+    "SYYYY": "year",
+    "YYYY": "year",
+    "YEAR": "year",
+    "SYEAR": "year",
+    "YYY": "year",
+    "YY": "year",
+    "Y": "year",
+    "Q": "quarter",
+    "MONTH": "month",
+    "MON": "month",
+    "MM": "month",
+    "RM": "month",
+    "IW": "week",
+    "DDD": "day",
+    "DD": "day",
+    "J": "day",
+    "HH": "hour",
+    "HH12": "hour",
+    "HH24": "hour",
+    "MI": "minute",
+}
+_PG_TRUNC_FIELDS = {
+    "microseconds",
+    "milliseconds",
+    "second",
+    "minute",
+    "hour",
+    "day",
+    "week",
+    "month",
+    "quarter",
+    "year",
+    "decade",
+    "century",
+    "millennium",
+}
+
+
+def _trunc_unit_guard(tree: Expr) -> str | None:
+    """Why a date truncation cannot ship, or None.
+
+    sqlglot turns Oracle TRUNC over a date into date_trunc but keeps
+    the Oracle format string; the fold maps the formats that have a
+    field, and whatever is left has none.
+    """
+    for node in tree.walk():
+        if isinstance(node, exp.DateTrunc | exp.TimestampTrunc):
+            unit = node.args.get("unit")
+        elif _func_name(node) == "DATE_TRUNC" and isinstance(node, exp.Anonymous):
+            # The postgres dialect re-reads an unknown field as a plain
+            # call; the first argument is the field.
+            unit = node.expressions[0] if node.expressions else None
+        else:
+            continue
+        # A literal on the Oracle side, a bare field name once the
+        # postgres dialect has re-read its own output.
+        text = unit.name if unit is not None else ""
+        if text.lower() not in _PG_TRUNC_FIELDS:
+            return (
+                f"TRUNC format '{text}' has no date_trunc field in"
+                " PostgreSQL; rewrite it by hand"
+            )
+    return None
+
+
 def _fold_identifiers(tree: Expr) -> Expr:
     """Fold identifiers to the converter's spelling; drop schema qualifiers.
 
@@ -181,6 +252,12 @@ def _fold_identifiers(tree: Expr) -> Expr:
             node.set("quoted", not _PLAIN_IDENT.match(folded) or folded in _RESERVED)
         if isinstance(node, exp.Table | exp.Column) and node.args.get("db"):
             node.set("db", None)
+        if isinstance(node, exp.DateTrunc | exp.TimestampTrunc):
+            unit = node.args.get("unit")
+            if isinstance(unit, exp.Literal) and unit.is_string:
+                mapped = _TRUNC_UNITS.get(str(unit.this).upper())
+                if mapped is not None:
+                    unit.set("this", mapped)
     chains = [
         node
         for node in tree.walk()
@@ -230,7 +307,13 @@ def _fold_expression(expression: str) -> str | None:
         tree = parsed[0] if parsed else None
         if tree is None:
             return None
-        select = _fold_identifiers(tree).find(exp.Select)
+        folded = _fold_identifiers(tree)
+        if _trunc_unit_guard(folded) is not None:
+            # The postgres dialect normalizes unknown fields when it
+            # re-reads its own output, so the check runs here, on the
+            # Oracle-side tree, or not at all.
+            return None
+        select = folded.find(exp.Select)
         if select is None or not select.expressions:
             return None
         head = select.expressions[0]
@@ -256,7 +339,10 @@ def _fold_condition(condition: str) -> str | None:
         tree = parsed[0] if parsed else None
         if tree is None:
             return None
-        where = _fold_identifiers(tree).find(exp.Where)
+        folded = _fold_identifiers(tree)
+        if _trunc_unit_guard(folded) is not None:
+            return None
+        where = folded.find(exp.Where)
         if where is None:
             return None
         return str(where.this.sql(dialect="postgres"))
@@ -297,6 +383,9 @@ def _default_guard(folded: str) -> str | None:
     tree = _reparse(folded)
     if tree is None:
         return "expression could not be re-checked; rewrite it by hand"
+    unit_guard = _trunc_unit_guard(tree)
+    if unit_guard is not None:
+        return unit_guard
     for node in tree.walk():
         name = _func_name(node)
         if name in _UNSUPPORTED_EXPR_FUNCS or name.startswith("SYS_OP_"):

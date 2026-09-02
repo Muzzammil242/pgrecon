@@ -5,6 +5,7 @@ import sqlite3
 
 from pgrecon.convert.identifiers import (
     _date_function_guard,
+    _default_guard,
     _fold_condition,
     _referenced_columns,
     ident,
@@ -239,7 +240,8 @@ def _emit_checks(
         date_guard = (
             None
             if folded is None
-            else _date_function_guard(
+            else _default_guard(folded)
+            or _date_function_guard(
                 folded, _date_columns(conn, r["owner"], r["table_name"])
             )
         )
