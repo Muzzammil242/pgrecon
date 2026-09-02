@@ -210,7 +210,15 @@ BEGIN
   WHEN MATCHED THEN UPDATE SET t.fee = 0 DELETE WHERE t.fee IS NULL;
 END merge_del_p;"""
 
+ROW_FN = """FUNCTION row_fn(p_kind IN VARCHAR2) RETURN t_fees%ROWTYPE IS
+  l_row t_fees%ROWTYPE;
+BEGIN
+  SELECT * INTO l_row FROM t_fees WHERE kind = p_kind AND ROWNUM = 1;
+  RETURN l_row;
+END row_fn;"""
+
 _UNITS = [
+    ("ROW_FN", "FUNCTION", ROW_FN),
     ("ROWNUM_P", "PROCEDURE", ROWNUM_P),
     ("ROWNUM_BAD_P", "PROCEDURE", ROWNUM_BAD_P),
     ("MERGE_P", "PROCEDURE", MERGE_P),
@@ -371,8 +379,8 @@ def test_refusal_cascades_to_callers(code_db: Path) -> None:
 
 def test_routine_count_matches_emitted(code_db: Path) -> None:
     result = convert_schema(code_db)
-    assert result.routines == 11
-    assert result.sql.count("LANGUAGE plpgsql") == 11
+    assert result.routines == 12
+    assert result.sql.count("LANGUAGE plpgsql") == 12
 
 
 def test_concatenation_carries_oracle_null_semantics(code_db: Path) -> None:
@@ -485,3 +493,11 @@ def test_merge_with_delete_refuses(code_db: Path) -> None:
     result = convert_schema(code_db)
     assert "merge_del_p" not in result.sql
     assert "second WHEN MATCHED" in _residue_reason(result, "MERGE_DEL_P")
+
+
+def test_rowtype_return_becomes_the_table_type(code_db: Path) -> None:
+    result = convert_schema(code_db)
+    flat = _flat(result.sql, "CREATE OR REPLACE FUNCTION row_fn")
+    assert "FUNCTION row_fn(p_kind IN varchar) RETURNS t_fees LANGUAGE plpgsql" in flat
+    assert "l_row t_fees%ROWTYPE;" in flat
+    assert "FROM t_fees WHERE kind = p_kind LIMIT 1;" in flat

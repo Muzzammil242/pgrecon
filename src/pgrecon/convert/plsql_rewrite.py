@@ -139,6 +139,18 @@ class _Rewriter(PlSqlParserListener):  # type: ignore[misc]
             if name is not None:
                 self._edit_ctx(name, _fold_written(self._span_text(name)) + "()")
                 self.suppressed.append((name.start.start, name.stop.stop))
+        if self.is_function:
+            spec = ctx.type_spec()
+            if (
+                spec is not None
+                and spec.PERCENT_ROWTYPE() is not None
+                and spec.type_name() is not None
+            ):
+                # A function returns a table's row type by the table's
+                # name on PostgreSQL; %ROWTYPE is for declarations only.
+                # The anchor itself is validated as any declaration is.
+                parts = [p.strip('"') for p in spec.type_name().getText().split(".")]
+                self._edit_ctx(spec, ident(parts[-1]))
         if ctx.seq_of_declare_specs() is not None:
             self.declares = True
         body = ctx.body()
