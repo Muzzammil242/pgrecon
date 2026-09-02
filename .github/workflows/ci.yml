@@ -43,12 +43,15 @@ jobs:
 
   live-apply:
     # The claim on the tin: the bundled sample's conversion applies to
-    # a real PostgreSQL 16 with zero rejected statements, on every
-    # commit - not just on the author's bench.
+    # a real PostgreSQL - 16, 17, and 18 - with zero rejected
+    # statements, on every commit, not just on the author's bench.
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pg: ["16", "17", "18"]
     services:
       postgres:
-        image: postgres:16
+        image: postgres:${{ matrix.pg }}
         env:
           POSTGRES_PASSWORD: ci
         ports:
@@ -74,7 +77,7 @@ jobs:
           uv run pgrecon report --db sample.db > /dev/null
           uv run pgrecon convert --db sample.db --out schema_pg.sql --residue residue.txt
 
-      - name: Apply to live PostgreSQL 16
+      - name: Apply to live PostgreSQL ${{ matrix.pg }}
         env:
           PGPASSWORD: ci
         run: |

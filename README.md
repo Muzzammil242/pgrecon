@@ -193,8 +193,8 @@ work that needs a person is refused by name, never guessed at, and a
 routine that calls a refused routine is refused with it.
 
 Two rules hold everywhere. Nothing invalid ships: CI applies the
-bundled sample's conversion to a live PostgreSQL 16 on every commit
-(the live-apply job in ci.yml), and development applies every change
+bundled sample's conversion to live PostgreSQL 16, 17, and 18 on
+every commit (the live-apply job in ci.yml), and development applies every change
 the same way, check_function_bodies on, before it lands. Nothing is
 lost silently: whatever the converter cannot carry faithfully becomes
 a named residue line instead of quietly wrong output.
