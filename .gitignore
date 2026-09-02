@@ -17,3 +17,4 @@ htmlcov/
 *.db
 *.log
 dump/
+fuzz-work/

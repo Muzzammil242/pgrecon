@@ -8,6 +8,7 @@ UPDATE OF column lists survive. Everything else - compound triggers,
 system triggers, INSTEAD OF, UPDATING('col') - refuses by name.
 """
 
+import re
 import sqlite3
 from typing import Any
 
@@ -17,7 +18,7 @@ from pgrecon.convert.code import (
     _feature_gate,
     _unit_text,
 )
-from pgrecon.convert.identifiers import _fold_condition
+from pgrecon.convert.identifiers import _fold_condition, fold_case, ident
 from pgrecon.convert.namespace import ROUTINES, NameRegistry
 from pgrecon.convert.plsql_rewrite import (
     _apply,
@@ -130,6 +131,20 @@ def _trigger_function(
     return sql, [], list(result.notes)
 
 
+def _function_name(trigger: str) -> str:
+    """A plain identifier for the trigger's function.
+
+    Derived from the trigger's name with everything PostgreSQL would
+    need quoted replaced, so the CREATE FUNCTION header and every
+    reference to it agree; the name registry catches the rare
+    collision two odd names could produce.
+    """
+    slug = re.sub(r"[^a-z0-9_]", "_", fold_case(trigger).lower())
+    if not re.match(r"[a-z_]", slug[:1]):
+        slug = "t_" + slug
+    return f"{slug}_fn"
+
+
 def _emit_triggers(
     conn: sqlite3.Connection,
     out: list[str],
@@ -149,7 +164,8 @@ def _emit_triggers(
         "SELECT owner, trigger_name, trigger_type, table_name, status FROM triggers"
         " ORDER BY owner, trigger_name"
     ).fetchall()
-    tables = {t for (_, t) in emitted}
+    tables = {t.upper() for (_, t) in emitted}
+    by_upper = {t.upper(): t for (_, t) in emitted}
     for r in rows:
         owner, name = r["owner"], r["trigger_name"]
         kind = (r["trigger_type"] or "").upper()
@@ -263,17 +279,19 @@ def _emit_triggers(
                 Residue(owner, name, "trigger", "the trigger header did not dissect")
             )
             continue
-        table = _fold_written(_span(text, table_ctx)).lower()
-        if table.upper() not in tables:
+        written = _fold_written(_span(text, table_ctx)).strip('"')
+        raw_table = by_upper.get(written.upper())
+        if raw_table is None:
             residue.append(
                 Residue(
                     owner,
                     name,
                     "trigger",
-                    f"its table {table.upper()} is not in the converted set",
+                    f"its table {written.upper()} is not in the converted set",
                 )
             )
             continue
+        table = ident(raw_table)
         events = " OR ".join(
             " ".join(_span(text, e).lower().split())
             for e in _walk_all(event_clause, "Dml_event_element")
@@ -319,7 +337,7 @@ def _emit_triggers(
             else:
                 when_sql = f" WHEN ({folded})"
 
-        fn_name = f"{name.lower()}_fn"
+        fn_name = _function_name(name)
         fn_sql, fn_reasons, fn_notes = _trigger_function(
             text,
             parse.tree,
@@ -345,22 +363,36 @@ def _emit_triggers(
         # name in its table's trigger namespace; a collision on the
         # function would let CREATE OR REPLACE silently replace an
         # earlier one.
-        if not names.claim(fn_name, "trigger function", owner, residue, scope=ROUTINES):
+        holder = names.peek(fn_name, scope=ROUTINES)
+        if holder is not None:
+            # The refusal names the trigger, which is what the reader
+            # knows; the function name is the converter's own.
+            residue.append(
+                Residue(
+                    owner,
+                    name,
+                    "trigger",
+                    f"its function {fn_name} would collide with {holder[1]}"
+                    f" {holder[0]} within PostgreSQL's 63-byte identifier"
+                    " limit; rename the trigger",
+                )
+            )
             continue
+        names.claim(fn_name, "trigger function", owner, residue, scope=ROUTINES)
         if not names.claim(
-            name, "trigger", owner, residue, scope=f"trigger:{table.upper()}"
+            name, "trigger", owner, residue, scope=f"trigger:{raw_table.upper()}"
         ):
             continue
         out.append(fn_sql)
         out.append("")
         level = "FOR EACH ROW" if row_level else "FOR EACH STATEMENT"
         out.append(
-            f"CREATE TRIGGER {name.lower()} {timing} {events} ON {table}\n"
+            f"CREATE TRIGGER {ident(name)} {timing} {events} ON {table}\n"
             f"{level}{when_sql}\n"
             f"EXECUTE FUNCTION {fn_name}();"
         )
         if (r["status"] or "").upper() == "DISABLED":
-            out.append(f"ALTER TABLE {table} DISABLE TRIGGER {name.lower()};")
+            out.append(f"ALTER TABLE {table} DISABLE TRIGGER {ident(name)};")
         out.append("")
         for note in fn_notes:
             residue.append(Residue(owner, name, "note", note))

@@ -1,3 +1,5 @@
+import re
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -51,9 +53,16 @@ def test_unmappable_types_return_none_with_reason(oracle: str) -> None:
 
 def test_identifiers_fold_or_quote() -> None:
     assert ident("EMPLOYEES") == "employees"
-    assert ident("ORDER") == '"ORDER"'
-    assert ident("Weird Name") == '"Weird Name"'
     assert ident("T_1") == "t_1"
+    # Reserved words fold like any other case-insensitive name and
+    # then need quotes.
+    assert ident("ORDER") == '"order"'
+    assert ident("LIMIT") == '"limit"'
+    # A name with lowercase letters was created quoted on Oracle and
+    # keeps its spelling; spaces need quotes either way.
+    assert ident("Weird Name") == '"Weird Name"'
+    assert ident("MixedCase") == '"MixedCase"'
+    assert ident("WITH SPACE") == '"with space"'
 
 
 @pytest.fixture()
@@ -1038,3 +1047,87 @@ def test_registry_scopes_are_independent() -> None:
     assert registry.claim("CK", "check", "APP", residue, scope="constraint:T1")
     assert registry.claim("CK", "check", "APP", residue, scope="constraint:T2")
     assert not registry.claim("CK", "check", "APP", residue, scope="constraint:T1")
+
+
+def test_check_without_condition_is_declined_by_name(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.execute(
+        "INSERT INTO constraints (owner, constraint_name, table_name, type)"
+        " VALUES ('HR', 'EMP_QTY_CK', 'EMP', 'C')"
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    reasons = {r.object_name: r.reason for r in result.residue if r.kind == "check"}
+    assert "not captured" in reasons["EMP_QTY_CK"]
+    assert "EMP_QTY_CK" not in result.sql.upper()
+
+
+def test_view_without_ddl_is_declined_by_name(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.execute(
+        "INSERT INTO objects (owner, name, type) VALUES ('HR', 'V_GHOST', 'VIEW')"
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    reasons = {r.object_name: r.reason for r in result.residue if r.kind == "view"}
+    assert "no DDL" in reasons["V_GHOST"]
+
+
+def test_case_sensitive_and_reserved_names_spell_consistently(tmp_path: Path) -> None:
+    """A quoted mixed-case table with a reserved-word column: the
+    table, its check, its comments, its grants, and a view over it
+    must all spell both names one way, or the DDL does not apply."""
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO objects (owner, name, type) VALUES
+          ('HR', 'MixedDept', 'TABLE'), ('HR', 'V_MIXED', 'VIEW');
+        INSERT INTO tables (owner, table_name, temporary)
+          VALUES ('HR', 'MixedDept', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'MixedDept', 'ID',    1, 'NUMBER', 22, 10, 0, 'N'),
+          ('HR', 'MixedDept', 'LIMIT', 2, 'NUMBER', 22, 5,  0, 'Y');
+        INSERT INTO constraints (owner, constraint_name, table_name, type) VALUES
+          ('HR', 'MIXED_PK', 'MixedDept', 'P'),
+          ('HR', 'MIXED_CK', 'MixedDept', 'C');
+        INSERT INTO constraint_columns (owner, constraint_name, column_name, position)
+          VALUES ('HR', 'MIXED_PK', 'ID', 1);
+        INSERT INTO check_conditions (owner, constraint_name, condition, truncated)
+          VALUES ('HR', 'MIXED_CK', '"LIMIT" > 0', 0);
+        INSERT INTO indexes (owner, index_name, table_name, index_type, uniqueness,
+                             generated)
+          VALUES ('HR', 'MIXED_LIMIT_IX', 'MixedDept', 'NORMAL', 'NONUNIQUE', 'N');
+        INSERT INTO index_columns (owner, index_name, column_name, position)
+          VALUES ('HR', 'MIXED_LIMIT_IX', 'LIMIT', 1);
+        INSERT INTO table_comments (owner, table_name, comments)
+          VALUES ('HR', 'MixedDept', 'Case matters');
+        INSERT INTO column_comments (owner, table_name, column_name, comments)
+          VALUES ('HR', 'MixedDept', 'LIMIT', 'Reserved word');
+        INSERT INTO grants (grantee, owner, table_name, privilege, grantable)
+          VALUES ('APP_RO', 'HR', 'MixedDept', 'SELECT', 'NO');
+        INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality) VALUES
+          ('HR', 'V_MIXED', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_MIXED" AS'
+           || ' SELECT "LIMIT" FROM "HR"."MixedDept" WHERE "LIMIT" > 1', 1, 'full');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(db)
+    sql = result.sql
+    assert 'CREATE TABLE "MixedDept" (' in sql
+    assert re.search(r'^\s+"limit" (integer|smallint|numeric)', sql, re.MULTILINE)
+    assert 'ALTER TABLE "MixedDept" ADD CONSTRAINT mixed_ck CHECK ("limit" > 0);' in sql
+    assert 'CREATE INDEX mixed_limit_ix ON "MixedDept" ("limit");' in sql
+    assert "COMMENT ON TABLE \"MixedDept\" IS 'Case matters';" in sql
+    assert 'COMMENT ON COLUMN "MixedDept"."limit" IS \'Reserved word\';' in sql
+    assert 'GRANT SELECT ON "MixedDept" TO app_ro;' in sql
+    assert 'FROM "MixedDept"' in sql and '"limit" > 1' in sql
+    for wrong in ('"LIMIT"', "mixeddept", '"MIXEDDEPT"'):
+        assert wrong not in sql
+    assert not [r for r in result.residue if r.kind not in ("note",)]

@@ -23,6 +23,24 @@ Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
   token level so a column named sys_context stays silent), and
   remote calls over a database link (a callee with @link, which
   postgres_fdw cannot serve).
+- A schema fuzzer guards the converter's laws: tools/fuzz_dump.py
+  generates adversarial extraction dumps from a seed and
+  tools/fuzz_run.py checks every seed for crashes, for objects that
+  left the inventory without reaching the DDL or the residue, and,
+  given a PostgreSQL, for rejected statements. A nightly job runs a
+  fresh window of seeds against PostgreSQL 16 and 18.
+- The fuzzer's first findings, fixed: a check constraint whose
+  condition never reached the inventory, a view whose DDL never
+  reached the dump, and a routine without source are now declined by
+  name instead of vanishing; the loader's DDL marker accepts names
+  with spaces; materialized views with case-sensitive names convert
+  under their catalog spelling.
+- One identifier convention across every emitter: a name Oracle
+  stored in uppercase folds to lowercase, a name created quoted with
+  lowercase letters keeps its case, and reserved words are quoted
+  lowercase - so a table, its checks, comments, grants, triggers, and
+  the views over it all spell it the same way. Trigger names and
+  their tables are quoted when they need it.
 - The bundled example dump is regenerated from the Oracle-loop job:
   35 spool files including grants, comments, character set, license
   posture, feature usage, partition bounds, sequences, and column

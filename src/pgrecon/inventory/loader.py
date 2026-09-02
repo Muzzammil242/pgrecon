@@ -351,7 +351,9 @@ INT_COLUMNS = {
     "detected_usages",
 }
 
-DDL_MARKER = re.compile(r"^-- PGRECON_OBJECT (\S+) ([^\s.]+)\.(\S+)\s*$", re.MULTILINE)
+# The name runs to the end of the line: Oracle allows spaces and
+# commas inside a quoted identifier, and the spool writes it raw.
+DDL_MARKER = re.compile(r"^-- PGRECON_OBJECT (\S+) ([^\s.]+)\.(.+?)\s*$", re.MULTILINE)
 
 # DBMS_METADATA output carries physical and state keywords that
 # sqlglot's Oracle grammar rejects but that mean nothing for an

@@ -18,7 +18,7 @@ constraints and triggers are per table (pg_constraint, pg_trigger);
 scopes keep those apart.
 """
 
-from pgrecon.convert.identifiers import over_limit, pg_truncate
+from pgrecon.convert.identifiers import fold_case, over_limit, pg_truncate
 from pgrecon.convert.residue import Residue
 
 RELATIONS = ""
@@ -33,7 +33,7 @@ class NameRegistry:
 
     def peek(self, name: str, scope: str = RELATIONS) -> tuple[str, str] | None:
         """The (name, kind) already holding this name, if any."""
-        return self._claimed.get((scope, pg_truncate((name or "").lower())))
+        return self._claimed.get((scope, pg_truncate(fold_case(name or ""))))
 
     def claim(
         self,
@@ -50,11 +50,11 @@ class NameRegistry:
         truncation note, because PostgreSQL will shorten it the same
         way everywhere it is referenced.
         """
-        key = (scope, pg_truncate((name or "").lower()))
+        key = (scope, pg_truncate(fold_case(name or "")))
         prior = self._claimed.get(key)
         if prior is not None:
             prior_name, prior_kind = prior
-            if (name or "").lower() == (prior_name or "").lower():
+            if fold_case(name or "") == fold_case(prior_name or ""):
                 reason = (
                     f"name collides with {prior_kind} {prior_name}: Oracle"
                     " keeps them in separate namespaces, PostgreSQL does"

@@ -3,7 +3,7 @@
 import re
 import sqlite3
 
-from pgrecon.convert.identifiers import ident
+from pgrecon.convert.identifiers import fold_case, ident
 from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
 
@@ -101,7 +101,7 @@ def _emit_synonyms(
         "SELECT owner, synonym_name, table_owner, table_name, db_link"
         " FROM synonyms ORDER BY owner, synonym_name"
     ).fetchall()
-    known = {t for (_, t) in emitted} | created_views
+    known = {t.upper() for (_, t) in emitted} | created_views
     count = 0
     created: set[str] = set()
     for r in rows:
@@ -215,11 +215,12 @@ def _emit_comments(
     nothing.
     """
     count = 0
-    tables = {t for (_, t) in emitted}
+    tables = {t.upper() for (_, t) in emitted}
     for r in conn.execute(
         "SELECT owner, table_name, comments FROM table_comments ORDER BY table_name"
     ):
-        name = (r["table_name"] or "").upper()
+        raw = r["table_name"] or ""
+        name = raw.upper()
         text = (r["comments"] or "").replace("'", "''")
         if name in matviews:
             kind = "MATERIALIZED VIEW"
@@ -229,23 +230,22 @@ def _emit_comments(
             kind = "TABLE"
         else:
             continue
-        out.append(f"COMMENT ON {kind} {ident(name.lower())} IS '{text}';")
+        out.append(f"COMMENT ON {kind} {ident(raw)} IS '{text}';")
         count += 1
     for r in conn.execute(
         "SELECT owner, table_name, column_name, comments FROM column_comments"
         " ORDER BY table_name, column_name"
     ):
-        name = (r["table_name"] or "").upper()
-        col = (r["column_name"] or "").upper()
-        kept = emitted.get((r["owner"], name))
+        raw = r["table_name"] or ""
+        raw_col = r["column_name"] or ""
+        name = raw.upper()
+        kept = emitted.get((r["owner"], raw))
         if name in matviews or name in created_views:
             pass  # matview and view columns exist; comment applies
-        elif kept is None or col not in kept:
+        elif kept is None or raw_col not in kept:
             continue
         text = (r["comments"] or "").replace("'", "''")
-        out.append(
-            f"COMMENT ON COLUMN {ident(name.lower())}.{ident(col.lower())} IS '{text}';"
-        )
+        out.append(f"COMMENT ON COLUMN {ident(raw)}.{ident(raw_col)} IS '{text}';")
         count += 1
     if count:
         out.append("")
@@ -289,19 +289,20 @@ def _emit_grants(
     ).fetchall()
     if not rows:
         return 0
-    tables = {t for (_, t) in emitted}
-    known = tables | matviews | created_views | sequence_names
+    tables = {t.upper() for (_, t) in emitted}
+    sequences = {s.upper() for s in sequence_names}
+    known = tables | matviews | created_views | sequences
     grantees = sorted(
         {
-            (r["grantee"] or "").upper()
+            fold_case(r["grantee"] or "")
             for r in rows
             if (r["grantee"] or "").upper() != "PUBLIC"
             and (r["table_name"] or "").upper() in known
         }
     )
     for grantee in grantees:
-        role = ident(grantee.lower())
-        quoted = grantee.lower().replace("'", "''")
+        role = ident(grantee)
+        quoted = grantee.replace("'", "''")
         out.append(
             "DO $$ BEGIN\n"
             f"  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{quoted}')"
@@ -312,12 +313,13 @@ def _emit_grants(
         )
     count = 0
     for r in rows:
-        name = (r["table_name"] or "").upper()
+        raw = r["table_name"] or ""
+        name = raw.upper()
         priv = (r["privilege"] or "").upper()
         grantee = (r["grantee"] or "").upper()
         if name not in known:
             continue  # the object's absence is already named
-        if name in sequence_names:
+        if name in sequences:
             mapped = _SEQUENCE_PRIVS.get(priv)
             kind = "SEQUENCE "
         else:
@@ -334,11 +336,9 @@ def _emit_grants(
                 )
             )
             continue
-        target = "PUBLIC" if grantee == "PUBLIC" else ident(grantee.lower())
+        target = "PUBLIC" if grantee == "PUBLIC" else ident(r["grantee"] or "")
         option = " WITH GRANT OPTION" if (r["grantable"] or "").upper() == "YES" else ""
-        out.append(
-            f"GRANT {mapped} ON {kind}{ident(name.lower())} TO {target}{option};"
-        )
+        out.append(f"GRANT {mapped} ON {kind}{ident(raw)} TO {target}{option};")
         count += 1
     if count or grantees:
         out.append("")

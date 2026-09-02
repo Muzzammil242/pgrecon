@@ -401,3 +401,22 @@ def test_error_bearing_spool_degrades_not_crashes(tmp_path: Path) -> None:
     finally:
         conn.close()
     assert warn is not None and "skipped" in warn[0]
+
+
+def test_ddl_marker_accepts_names_with_spaces(tmp_path: Path) -> None:
+    dump = tmp_path / "dump"
+    dump.mkdir()
+    (dump / "ddl_views.sql").write_text(
+        "\n-- PGRECON_OBJECT VIEW HR.V WITH SPACE\n\n"
+        '  CREATE OR REPLACE VIEW "HR"."V WITH SPACE" AS SELECT 1 FROM dual;\n\n'
+        "-- PGRECON_OBJECT VIEW HR.V, COMMA\n\n"
+        '  CREATE OR REPLACE VIEW "HR"."V, COMMA" AS SELECT 2 FROM dual;\n',
+        encoding="utf-8",
+    )
+    db = tmp_path / "inv.db"
+    counts = load_dump(dump, db)
+    assert counts["ddl"] == 2
+    conn = sqlite3.connect(db)
+    names = {r[0] for r in conn.execute("SELECT name FROM ddl WHERE type = 'VIEW'")}
+    conn.close()
+    assert names == {"V WITH SPACE", "V, COMMA"}

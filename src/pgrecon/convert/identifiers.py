@@ -89,12 +89,26 @@ _RESERVED = {
 }
 
 
+def fold_case(name: str) -> str:
+    """The spelling PostgreSQL will know the name by.
+
+    Oracle stores a name created without quotes in uppercase and
+    matches it case-insensitively; PostgreSQL does the same in
+    lowercase, so those fold. A name carrying lowercase letters was
+    created quoted and case-sensitive on Oracle and keeps its
+    spelling exactly. Every emitter goes through this one rule, so a
+    table, its comments, its grants, its checks, and the views over
+    it all spell the name the same way.
+    """
+    return name.lower() if name == name.upper() else name
+
+
 def ident(name: str) -> str:
-    """Fold to lowercase; quote only when the result needs it."""
-    lowered = name.lower()
-    if _PLAIN_IDENT.match(lowered) and lowered not in _RESERVED:
-        return lowered
-    return '"' + name.replace('"', '""') + '"'
+    """Fold to PostgreSQL's case; quote only when the result needs it."""
+    folded = fold_case(name)
+    if _PLAIN_IDENT.match(folded) and folded not in _RESERVED:
+        return folded
+    return '"' + folded.replace('"', '""') + '"'
 
 
 # PostgreSQL truncates identifiers to 63 bytes at parse time, quoted
@@ -124,7 +138,7 @@ def truncation_clash(names: Iterable[str]) -> tuple[str, str] | None:
     """The first pair of names PostgreSQL would fold together, if any."""
     seen: dict[str, str] = {}
     for name in names:
-        key = pg_truncate(name.lower())
+        key = pg_truncate(fold_case(name))
         prior = seen.get(key)
         if prior is not None and prior != name:
             return prior, name
@@ -145,11 +159,13 @@ def _concat_parts(node: Expr) -> list[Expr]:
 
 
 def _fold_identifiers(tree: Expr) -> Expr:
-    """Lowercase and unquote identifiers; drop schema qualifiers.
+    """Fold identifiers to the converter's spelling; drop schema qualifiers.
 
     DBMS_METADATA quotes every identifier in uppercase; carried as-is
     the view would reference "EMP" while the converted table is emp.
-    Single-schema conversion also drops the owner prefix.
+    The fold is the same one ident() applies to DDL, so case-sensitive
+    and reserved names come out spelled exactly as their objects were
+    created. Single-schema conversion also drops the owner prefix.
 
     Concatenation chains become NULLIF(concat(...), ''): Oracle ||
     treats NULL as the empty string where PostgreSQL || yields NULL,
@@ -160,8 +176,9 @@ def _fold_identifiers(tree: Expr) -> Expr:
     """
     for node in tree.walk():
         if isinstance(node, exp.Identifier):
-            node.set("this", node.name.lower())
-            node.set("quoted", not _PLAIN_IDENT.match(node.name.lower()))
+            folded = fold_case(node.name)
+            node.set("this", folded)
+            node.set("quoted", not _PLAIN_IDENT.match(folded) or folded in _RESERVED)
         if isinstance(node, exp.Table | exp.Column) and node.args.get("db"):
             node.set("db", None)
     chains = [

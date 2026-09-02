@@ -124,7 +124,7 @@ def _convert(conn: sqlite3.Connection) -> Conversion:
         emitted,
         mv_names,
         sequence_names,
-        {t for (_, t) in emitted} | created_views | synonym_names,
+        {t.upper() for (_, t) in emitted} | created_views | synonym_names,
         frozenset(
             (r["name"] or "").upper()
             for r in conn.execute("SELECT name FROM objects WHERE type = 'PROCEDURE'")

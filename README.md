@@ -225,6 +225,19 @@ tools/make_scale_dump.py, so the measurement is reproducible.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit conventions and
 how to add a rule. Every rule lands with its fixture test.
 
+The converter's laws are fuzzed as well. tools/fuzz_dump.py generates
+an adversarial extraction dump from a seed - names past 63 bytes in
+ASCII and Hangul, names that collide once Oracle's namespaces fold
+into pg_class, reserved words as columns, every partition layout,
+spools carrying an Oracle error or a foreign code page - and
+tools/fuzz_run.py drives seeds through load, report, and convert,
+checking that nothing crashed, that every object the loader stored is
+either created in the DDL or named in the residue, and, given a
+PostgreSQL, that the DDL applies. CI runs a fresh window of seeds
+nightly against PostgreSQL 16 and 18 (fuzz.yml); locally:
+
+    uv run python tools/fuzz_run.py --seeds 10
+
 ## Commercial support
 
 The maintainer offers commercial migration assessment and delivery

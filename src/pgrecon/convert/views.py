@@ -45,7 +45,7 @@ def _view_guard(
             node.expression, exp.Func | exp.Anonymous | exp.Dot
         ):
             return "uses object-relational methods that have no counterpart"
-    known = {t for (_, t) in emitted} | created_views | {view_name.upper()}
+    known = {t.upper() for (_, t) in emitted} | created_views | {view_name.upper()}
     for tname in referenced:
         if tname not in known:
             return f"references {tname}, which is not in the converted set"
@@ -53,8 +53,8 @@ def _view_guard(
     if len(set(sources)) == 1:
         gone = set()
         for (_owner, t), cols in dropped.items():
-            if t == sources[0]:
-                gone |= cols
+            if t.upper() == sources[0]:
+                gone |= {c.upper() for c in cols}
         lost = sorted({c.name.upper() for c in tree.find_all(exp.Column)} & gone)
         if lost:
             return f"references {lost[0]}, a column that was not converted"
@@ -218,9 +218,24 @@ def _emit_views(
     rows = conn.execute(
         "SELECT owner, name, ddl FROM ddl WHERE type = 'VIEW' ORDER BY name"
     ).fetchall()
+    names = {r["name"] for r in rows}
+    # A view the catalog lists but whose DDL never reached the dump -
+    # DBMS_METADATA failed on it, or the spool was cut - is declined
+    # by name rather than forgotten.
+    for o in conn.execute(
+        "SELECT owner, name FROM objects WHERE type = 'VIEW' ORDER BY owner, name"
+    ):
+        if o["name"] not in names:
+            residue.append(
+                Residue(
+                    o["owner"],
+                    o["name"],
+                    "view",
+                    "no DDL for this view reached the dump; extract it by hand",
+                )
+            )
     if not rows:
         return 0, set()
-    names = {r["name"] for r in rows}
     edges: dict[str, set[str]] = {r["name"]: set() for r in rows}
     for d in conn.execute(
         "SELECT name, ref_name FROM dependencies"
@@ -315,7 +330,7 @@ def _emit_views(
                     continue
                 if not registry.claim(name, "view", r["owner"], residue):
                     continue
-                out.append(f"CREATE VIEW {ident(name.lower())} AS\n{built};")
+                out.append(f"CREATE VIEW {ident(name)} AS\n{built};")
                 out.append("")
                 created_views.add(name.upper())
                 wrote = True

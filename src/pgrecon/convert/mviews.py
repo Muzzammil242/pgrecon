@@ -54,18 +54,22 @@ def _emit_mviews(
 
     count = 0
     for (owner, name), r in sorted(queries.items()):
-        columns = [
-            (c["column_name"] or "").upper()
+        # Lookups and output use the catalog spelling; the uppercased
+        # key only orders and cross-references.
+        raw = r["mview_name"] or name
+        raw_columns = [
+            c["column_name"] or ""
             for c in conn.execute(
                 "SELECT column_name FROM columns"
                 " WHERE owner = ? AND table_name = ? ORDER BY position",
-                (owner, name),
+                (r["owner"] or owner, raw),
             )
         ]
+        columns = [c.upper() for c in raw_columns]
         if not columns:
             residue.append(
                 Residue(
-                    owner, name, "materialized view", "no column facts in the inventory"
+                    owner, raw, "materialized view", "no column facts in the inventory"
                 )
             )
             continue
@@ -87,7 +91,7 @@ def _emit_mviews(
             residue.append(
                 Residue(
                     owner,
-                    name,
+                    raw,
                     "materialized view",
                     f"defining query needs a manual rewrite: {reason}",
                 )
@@ -97,7 +101,7 @@ def _emit_mviews(
             residue.append(
                 Residue(
                     owner,
-                    name,
+                    raw,
                     "materialized view",
                     "defining query is not a plain SELECT; rewrite by hand",
                 )
@@ -105,18 +109,15 @@ def _emit_mviews(
             continue
         guard = _view_guard(tree, name, emitted, dropped, created_views)
         if guard is not None:
-            residue.append(Residue(owner, name, "materialized view", guard))
+            residue.append(Residue(owner, raw, "materialized view", guard))
             continue
-        if not names.claim(name, "materialized view", owner, residue):
+        if not names.claim(raw, "materialized view", owner, residue):
             continue
         # The container's column names come first: Oracle derived them
         # from the query once, and indexes converted from the container
         # reference them by exactly these names.
-        header = ", ".join(ident(c.lower()) for c in columns)
-        out.append(
-            f"CREATE MATERIALIZED VIEW {ident(name.lower())} ({header}) AS\n"
-            f"{statement};"
-        )
+        header = ", ".join(ident(c) for c in raw_columns)
+        out.append(f"CREATE MATERIALIZED VIEW {ident(raw)} ({header}) AS\n{statement};")
         out.append("")
         emitted[(owner, name)] = set(columns)
         created_views.add(name)
@@ -125,7 +126,7 @@ def _emit_mviews(
         residue.append(
             Residue(
                 owner,
-                name,
+                raw,
                 "note",
                 f"Oracle refreshed this materialized view ({refresh});"
                 " PostgreSQL refreshes on command - schedule REFRESH"
@@ -136,7 +137,7 @@ def _emit_mviews(
             residue.append(
                 Residue(
                     owner,
-                    name,
+                    raw,
                     "note",
                     "query rewrite does not exist in PostgreSQL - point"
                     " queries at the materialized view directly",

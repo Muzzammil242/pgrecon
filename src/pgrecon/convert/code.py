@@ -309,7 +309,7 @@ def _emit_code(
         (r["name"] or "").upper()
         for r in conn.execute("SELECT name FROM objects WHERE type = 'PACKAGE'")
     }
-    tables = {t for (_, t) in emitted}
+    tables = {t.upper() for (_, t) in emitted}
 
     for r in conn.execute(
         "SELECT owner, name FROM objects WHERE type = 'PACKAGE' ORDER BY owner, name"
@@ -342,6 +342,22 @@ def _emit_code(
         " FROM plsql_units WHERE type IN ('FUNCTION', 'PROCEDURE')"
         " ORDER BY owner, name"
     ).fetchall()
+    # A unit the catalog lists but whose source never reached the dump
+    # is declined by name rather than forgotten.
+    with_source = {(u["owner"], u["name"], u["type"]) for u in units}
+    for r in conn.execute(
+        "SELECT owner, name, type FROM objects"
+        " WHERE type IN ('FUNCTION', 'PROCEDURE') ORDER BY owner, name"
+    ):
+        if (r["owner"], r["name"], r["type"]) not in with_source:
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["name"],
+                    r["type"].lower(),
+                    "no source for this unit reached the dump; extract it by hand",
+                )
+            )
 
     accepted: dict[str, tuple[str, str, str, list[str]]] = {}
     edges: dict[str, set[str]] = {}

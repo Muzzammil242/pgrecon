@@ -177,14 +177,28 @@ def _emit_checks(
     count = 0
     rows = conn.execute(
         "SELECT c.owner, c.constraint_name, c.table_name, k.condition, k.truncated"
-        " FROM constraints c JOIN check_conditions k"
+        " FROM constraints c LEFT JOIN check_conditions k"
         " ON k.owner = c.owner AND k.constraint_name = c.constraint_name"
         " WHERE c.type = 'C' ORDER BY c.owner, c.table_name, c.constraint_name"
     ).fetchall()
     wrote = False
     for r in rows:
         condition = (r["condition"] or "").strip()
-        if not condition or _NOT_NULL_CONDITION.match(condition):
+        if not condition:
+            # Conditions travel through their own spool, read from a
+            # LONG; a constraint whose text never arrived is declined
+            # by name, not forgotten.
+            residue.append(
+                Residue(
+                    r["owner"],
+                    r["constraint_name"],
+                    "check",
+                    "its condition was not captured in the inventory;"
+                    " recover it from the source before porting",
+                )
+            )
+            continue
+        if _NOT_NULL_CONDITION.match(condition):
             # Column-level NOT NULL already lives on the column.
             continue
         if matviews and (r["table_name"] or "").upper() in matviews:

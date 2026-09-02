@@ -1,0 +1,84 @@
+name: Schema fuzz
+
+# Adversarial extraction dumps, generated from a seed, through load,
+# report, convert, and a live PostgreSQL apply; every seed must obey
+# the converter's laws. Nightly on a fresh window of seeds, and on
+# pull requests that touch the converter, the loader, or the fuzzer.
+
+on:
+  schedule:
+    - cron: "47 4 * * *"
+  workflow_dispatch:
+    inputs:
+      seeds:
+        description: "How many seeds"
+        default: "40"
+      start:
+        description: "First seed (blank: derived from the date)"
+        default: ""
+  pull_request:
+    paths:
+      - ".github/workflows/fuzz.yml"
+      - "tools/fuzz_*.py"
+      - "src/pgrecon/convert/**"
+      - "src/pgrecon/inventory/**"
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["16", "18"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Pick the seed window
+        id: window
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "start=1" >> "$GITHUB_OUTPUT"
+            echo "seeds=12" >> "$GITHUB_OUTPUT"
+          else
+            start="${{ github.event.inputs.start }}"
+            if [ -z "$start" ]; then
+              start=$(( $(date -u +%Y%m%d) % 100000 * 100 + 1 ))
+            fi
+            echo "start=$start" >> "$GITHUB_OUTPUT"
+            echo "seeds=${{ github.event.inputs.seeds || 40 }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fuzz against PostgreSQL ${{ matrix.pg }}
+        run: |
+          uv run python tools/fuzz_run.py \
+            --seeds ${{ steps.window.outputs.seeds }} \
+            --start ${{ steps.window.outputs.start }} \
+            --pg "host=127.0.0.1 user=postgres password=ci" \
+            --work fuzz-work
+
+      - name: Keep the failing seeds
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-failures-pg${{ matrix.pg }}
+          path: fuzz-work/
+          retention-days: 14
