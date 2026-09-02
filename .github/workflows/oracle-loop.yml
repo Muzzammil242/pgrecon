@@ -1,0 +1,135 @@
+name: Oracle loop
+
+# The full loop against real Oracle databases: install the synthetic
+# estate, run the packaged extraction script inside the database
+# container, load, convert, and apply the result to a live PostgreSQL.
+# This is where extraction bugs surface - a spool that carries a server
+# error instead of rows, a query that names a column the view does not
+# have - so it runs nightly and on any change to the extraction path.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  pull_request:
+    paths:
+      - ".github/workflows/oracle-loop.yml"
+      - "src/pgrecon/extract/**"
+      - "src/pgrecon/inventory/**"
+      - "tests/fixtures/synthetic/**"
+  workflow_dispatch:
+
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: xe-21c
+            image: gvenzl/oracle-xe:21
+            service: XEPDB1
+            schema: synthetic_schema.sql
+            script_args: ""
+          - name: free-23ai
+            image: gvenzl/oracle-free:23
+            service: FREEPDB1
+            schema: synthetic_schema.sql
+            script_args: ""
+          - name: xe-11g-legacy
+            image: gvenzl/oracle-xe:11
+            service: XE
+            schema: synthetic_schema_11g.sql
+            script_args: "--legacy"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Start Oracle (${{ matrix.image }})
+        run: |
+          docker run -d --name oracledb -e ORACLE_PASSWORD=ci ${{ matrix.image }}
+          for i in $(seq 1 90); do
+            if docker logs oracledb 2>&1 | grep -q "DATABASE IS READY TO USE"; then
+              echo "ready after ~$((i*10))s"; break
+            fi
+            sleep 10
+          done
+          docker logs oracledb 2>&1 | grep -q "DATABASE IS READY TO USE"
+
+      - name: Install the synthetic estate
+        run: |
+          sed "s#@localhost/XEPDB1#@localhost/${{ matrix.service }}#" \
+            tests/fixtures/synthetic/${{ matrix.schema }} > schema.sql
+          docker cp schema.sql oracledb:/tmp/schema.sql
+          docker exec oracledb bash -c \
+            "sqlplus -s system/ci@localhost/${{ matrix.service }} @/tmp/schema.sql" \
+            > install.log 2>&1 || true
+          grep -c "ORA-" install.log || true
+          tail -3 install.log
+
+      - name: Extract with the packaged script
+        run: |
+          uv run pgrecon script ${{ matrix.script_args }} --out extract.sql
+          docker cp extract.sql oracledb:/tmp/extract.sql
+          docker exec oracledb bash -c \
+            "mkdir -p /tmp/dump && cd /tmp/dump && sqlplus -s system/ci@localhost/${{ matrix.service }} @/tmp/extract.sql RECON_TEST" \
+            > extract.log 2>&1 || true
+          tail -3 extract.log
+          docker cp oracledb:/tmp/dump ./dump
+          echo "$(ls dump | wc -l) spool files"
+
+      - name: Guard - no spool carries a server error
+        run: |
+          if grep -l "^ERROR at line" dump/* ; then
+            echo "a spool holds an Oracle error instead of rows"; exit 1
+          fi
+
+      - name: Load and report
+        run: |
+          uv run pgrecon load dump --db loop.db
+          uv run pgrecon report --db loop.db | tail -1
+          uv run python - << 'PY'
+          import sqlite3
+          conn = sqlite3.connect("loop.db")
+          warnings = conn.execute(
+              "SELECT key, value FROM meta WHERE key LIKE 'load_warning:%'"
+          ).fetchall()
+          objects = conn.execute("SELECT COUNT(*) FROM objects").fetchone()[0]
+          print(f"{objects} objects, load warnings: {warnings}")
+          assert not warnings, "the loader degraded rows - inspect the spools"
+          assert objects >= 20, "extraction captured too little"
+          PY
+
+      - name: Convert and apply to live PostgreSQL 16
+        env:
+          PGPASSWORD: ci
+        run: |
+          uv run pgrecon convert --db loop.db --out schema_pg.sql --residue residue.txt
+          psql -h 127.0.0.1 -U postgres -qX -v ON_ERROR_STOP=1 \
+            -c "SET check_function_bodies = on" -f schema_pg.sql
+          echo "applied with zero rejected statements"
+
+      - name: Keep the dump as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dump-${{ matrix.name }}
+          path: dump/
+          retention-days: 14
