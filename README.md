@@ -4,9 +4,10 @@
 [![PyPI](https://img.shields.io/pypi/v/pgrecon.svg)](https://pypi.org/project/pgrecon/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Migration reconnaissance for PostgreSQL. pgrecon inventories an Oracle
-database from an offline dump and runs a deterministic rule engine over
-it, reporting the constructs that decide the real cost of a move:
+pgrecon is an open-source Oracle to PostgreSQL migration assessment and
+schema conversion tool. It inventories an Oracle database from an
+offline dump and runs a deterministic rule engine over it, reporting
+the constructs that decide the real cost of a move:
 package-level state, autonomous transactions, LONG columns, interval
 partitioning, database links, and several dozen other things that
 surface late and expensively when nobody looks for them first. The

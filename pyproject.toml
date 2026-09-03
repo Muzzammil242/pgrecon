@@ -1,14 +1,24 @@
 [project]
 name = "pgrecon"
 version = "0.7.0"
-description = "Migration reconnaissance for PostgreSQL: inventory, assess, and convert Oracle databases before the move."
+description = "Oracle to PostgreSQL migration assessment and schema conversion from an offline dump: inventory, compatibility rules, effort estimate, DDL that applies."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 authors = [
     { name = "Muzzammil Sarwar", email = "muzzammil@umaish.com" },
 ]
-keywords = ["postgresql", "oracle", "migration", "assessment", "database"]
+keywords = [
+    "postgresql",
+    "oracle",
+    "oracle-to-postgresql",
+    "migration",
+    "assessment",
+    "schema-conversion",
+    "plsql",
+    "plpgsql",
+    "database",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
