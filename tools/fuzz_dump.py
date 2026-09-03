@@ -1152,7 +1152,11 @@ class Estate:
         elif kind == "LIST" and txt:
             ptype = "LIST"
             key = [txt.name]
-            parts = [("P_AB", "'A', 'B'", 0), ("P_C", "'O''Brien', 'C'", 0)]
+            # Oracle rejects a partition value wider than its column
+            # (ORA-14036), so the values fit the key's declared width.
+            width = char_facts(txt.data_type, txt.ddl)[0] or txt.length or 1
+            wide = "'O''Brien', 'C'" if width >= 7 else "'C', 'D'"
+            parts = [("P_AB", "'A', 'B'", 0), ("P_C", wide, 0)]
             parts.append(("P_REST", rng.choice(["DEFAULT", "NULL", "'Z', NULL"]), 0))
         elif kind == "HASH" and num:
             ptype = "HASH"
@@ -1171,9 +1175,19 @@ class Estate:
             sub = "HASH" if num else "LIST"
             subkey = num.name if num else (txt.name if txt else key[0])
             self.add("part_subkey_columns.csv", OWNER, name, subkey, 1)
+            # The same width rule for list subpartition values.
+            sub_first = "'S1'"
+            if (
+                sub == "LIST"
+                and txt
+                and (char_facts(txt.data_type, txt.ddl)[0] or 9) < 2
+            ):
+                sub_first = "'S'"
             for pname, _, _ in parts:
                 for s in range(2):
-                    high = None if sub == "HASH" else ("'S1'" if s == 0 else "DEFAULT")
+                    high = (
+                        None if sub == "HASH" else (sub_first if s == 0 else "DEFAULT")
+                    )
                     self.add(
                         "part_subpartitions.csv",
                         OWNER,
