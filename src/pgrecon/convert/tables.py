@@ -2,6 +2,7 @@
 
 import re
 import sqlite3
+from decimal import Decimal
 
 from pgrecon.convert.identifiers import (
     _date_function_guard,
@@ -36,13 +37,35 @@ _EMPTY_LOBS = {"EMPTY_CLOB()": "''", "EMPTY_BLOB()": "''::bytea"}
 _STRING_LITERAL = re.compile(r"^'((?:[^']|'')*)'$")
 
 
+_NUMERIC_LITERAL = re.compile(r"^-?\d+(?:\.\d+)?$")
+
+
 def _literal_length_guard(folded: str, column: sqlite3.Row) -> str | None:
-    """A string default longer than its column: Oracle accepts the
-    table and rejects the row; PostgreSQL rejects the table."""
-    m = _STRING_LITERAL.match(folded.strip())
+    """A literal default its column cannot hold: Oracle accepts the
+    table and rejects the row; PostgreSQL rejects the table.
+
+    Strings longer than the declared width, and numbers whose integer
+    part exceeds what NUMBER(p, s) leaves room for - NUMBER(5, 10)
+    holds nothing at or above 0.00001, so DEFAULT -1 can never apply.
+    """
+    dtype = (column["data_type"] or "").upper()
+    text = folded.strip()
+    if dtype == "NUMBER" and _NUMERIC_LITERAL.match(text):
+        precision = column["data_precision"]
+        if precision is None:
+            return None
+        scale = column["data_scale"] or 0
+        room = precision - scale
+        magnitude = abs(Decimal(text))
+        if (room <= 0 and magnitude != 0) or magnitude >= Decimal(10) ** room:
+            return (
+                f"default {text} cannot fit NUMBER({precision},{scale}); Oracle"
+                " would reject the row, PostgreSQL rejects the table"
+            )
+        return None
+    m = _STRING_LITERAL.match(text)
     if m is None:
         return None
-    dtype = (column["data_type"] or "").upper()
     length = column["data_length"]
     if dtype not in ("VARCHAR2", "NVARCHAR2", "CHAR", "NCHAR") or not length:
         return None

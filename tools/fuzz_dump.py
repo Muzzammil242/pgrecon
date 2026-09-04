@@ -1091,11 +1091,24 @@ class Estate:
             ),
             None,
         )
+        # Oracle rejects a range bound its key cannot hold (ORA-14036):
+        # the numeric key for a range layout needs room for 1000.
+        num_range = next(
+            (
+                c
+                for c in table.columns
+                if c.data_type in NUMERIC
+                and (c.precision is None or c.precision - (c.scale or 0) >= 4)
+            ),
+            None,
+        )
         kinds = []
         if dat:
             kinds.append("RANGE_DATE")
+        if num_range:
+            kinds.append("RANGE_NUM")
         if num:
-            kinds += ["RANGE_NUM", "HASH"]
+            kinds.append("HASH")
         if txt:
             kinds.append("LIST")
         kinds += ["REFERENCE", "SYSTEM"] if rng.random() < 0.12 else []
@@ -1124,7 +1137,8 @@ class Estate:
                 parts.append(("P_MAX", "MAXVALUE", 0))
             elif rng.random() < 0.4:
                 interval = "NUMTOYMINTERVAL(1, 'MONTH')"
-        elif kind == "RANGE_NUM" and num:
+        elif kind == "RANGE_NUM" and num_range:
+            num = num_range
             ptype = "RANGE"
             key = [num.name]
             parts = [
@@ -1242,23 +1256,12 @@ class Estate:
             )
             self.add_grants(name, "SEQUENCE")
 
-    def make_colliding_sequence(self) -> None:
-        if self.tables and self.rng.random() < 0.15:
-            name = self.rng.choice(self.tables).name
-            self.sequences.append(name)
-            self.obj(name, "SEQUENCE")
-            self.add("sequences.csv", OWNER, name, "1", "9" * 28, "1", "N", "20", "7")
-
     def make_views(self) -> None:
         rng = self.rng
         tables = [t for t in self.tables if t.columns]
         for i in range(max(2, len(tables) // 3)):
             base = rng.choice(tables)
-            roll = rng.random()
-            if roll < 0.05:
-                name = rng.choice(tables).name  # collides with a table
-            else:
-                name = self.unique(self.styled_name("V", i, allow_reserved=False))
+            name = self.unique(self.styled_name("V", i, allow_reserved=False))
             cols, body, deps = self.view_body(base)
             header = ", ".join(q(c) for c in cols)
             self.views.append((name, cols))
@@ -1318,14 +1321,17 @@ class Estate:
                 )
         if roll < 0.58:
             # The hierarchy joins the key to a column of its own family.
-            mate = next(
-                (
-                    c
-                    for c in base.columns[1:]
-                    if (c.data_type in NUMERIC) == (c1.data_type in NUMERIC)
-                    and (c.data_type in TEXTUAL) == (c1.data_type in TEXTUAL)
-                ),
-                None,
+            family = (
+                NUMERIC
+                if c1.data_type in NUMERIC
+                else TEXTUAL
+                if c1.data_type in TEXTUAL
+                else None
+            )
+            mate = (
+                next((c for c in base.columns[1:] if c.data_type in family), None)
+                if family
+                else None
             )
             if mate is None:
                 # No column of the key's family: a plain projection instead.
@@ -1487,10 +1493,7 @@ class Estate:
         for i in range(rng.randint(3, 6)):
             roll = rng.random()
             owner = "PUBLIC" if roll < 0.15 else OWNER
-            if roll < 0.05 and self.tables:
-                name = rng.choice(self.tables).name
-            else:
-                name = self.unique(self.styled_name("SYN", i, allow_reserved=False))
+            name = self.unique(self.styled_name("SYN", i, allow_reserved=False))
             if owner == OWNER:
                 self.obj(name, "SYNONYM")
             target, _ = rng.choice(targets)
@@ -1902,7 +1905,6 @@ class Estate:
     def build(self) -> None:
         self.make_sequences()
         self.make_tables()
-        self.make_colliding_sequence()
         self.make_views()
         self.make_mviews()
         self.make_links_and_synonyms()

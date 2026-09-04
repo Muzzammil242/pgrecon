@@ -2,6 +2,7 @@
 
 import re
 import sqlite3
+from collections.abc import Callable
 
 import sqlglot
 from sqlglot import Expr, exp
@@ -128,7 +129,11 @@ def _view_guard(
     return None
 
 
-def _connect_by_view(tree: Expr, declared: list[str]) -> tuple[str | None, str | None]:
+def _connect_by_view(
+    tree: Expr,
+    declared: list[str],
+    families: Callable[[str], dict[str, str]] | None = None,
+) -> tuple[str | None, str | None]:
     """A hierarchical query as WITH RECURSIVE, or a named refusal.
 
     The provable subset: one table, one PRIOR equality, projections of
@@ -180,6 +185,19 @@ def _connect_by_view(tree: Expr, declared: list[str]) -> tuple[str | None, str |
         )
     parent_col = ident(prior_inner.name)
     child_col = ident(plains[0].name)
+    source_tables = list(select.find_all(exp.Table))
+    if families is not None and len(source_tables) == 1:
+        # Oracle compares NUMBER with VARCHAR2 by converting one side;
+        # PostgreSQL has no such operator, so the join would not parse.
+        known = families(source_tables[0].name)
+        parent_family = known.get(prior_inner.name.upper())
+        child_family = known.get(plains[0].name.upper())
+        if parent_family and child_family and parent_family != child_family:
+            return None, (
+                f"PRIOR {parent_col} = {child_col} compares {parent_family} with"
+                f" {child_family}; Oracle converts implicitly, PostgreSQL does"
+                " not - cast one side by hand"
+            )
     start = connect.args.get("start")
     if start is not None and (
         any(True for _ in start.find_all(exp.Prior))
@@ -324,6 +342,15 @@ def _emit_views(
     count = 0
     wrote = False
     created_views: set[str] = set()
+    # Column families of the converted tables, for the hierarchy guard.
+    by_upper = {t.upper(): (o, t) for (o, t) in emitted}
+
+    def families(table: str) -> dict[str, str]:
+        from pgrecon.convert.tables import _column_families
+
+        found = by_upper.get(table.upper())
+        return _column_families(conn, *found) if found else {}
+
     for name in ordered:
         r = by_name[name]
         text = _VIEW_HEADER_NOISE.sub("", r["ddl"] or "")
@@ -384,7 +411,7 @@ def _emit_views(
                     if isinstance(folded.this, exp.Schema)
                     else []
                 )
-                built, why = _connect_by_view(folded, declared)
+                built, why = _connect_by_view(folded, declared, families)
                 if built is None:
                     residue.append(
                         Residue(

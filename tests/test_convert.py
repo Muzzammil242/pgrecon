@@ -1732,3 +1732,56 @@ def test_byte_semantics_note_needs_a_multibyte_database(facts_db: Path) -> None:
     assert "1 string column(s)" in next(
         r.reason for r in notes if r.object_name == "EMP"
     )
+
+
+def test_numeric_defaults_must_fit_precision_and_scale(tmp_path: Path) -> None:
+    db = tmp_path / "inv.db"
+    conn = open_db(db)
+    conn.executescript(
+        """
+        INSERT INTO tables (owner, table_name, temporary) VALUES ('HR', 'RATES', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'RATES', 'ID',    1, 'NUMBER', 22, 10, 0, 'N'),
+          ('HR', 'RATES', 'TINY',  2, 'NUMBER', 22, 5, 10, 'Y'),
+          ('HR', 'RATES', 'PRICE', 3, 'NUMBER', 22, 5, 2, 'Y'),
+          ('HR', 'RATES', 'BIG',   4, 'NUMBER', 22, 3, 0, 'Y'),
+          ('HR', 'RATES', 'ANY',   5, 'NUMBER', 22, NULL, NULL, 'Y');
+        INSERT INTO column_defaults (owner, table_name, column_name, default_text,
+                                     virtual, truncated) VALUES
+          ('HR', 'RATES', 'TINY', '-1', 'NO', 0),
+          ('HR', 'RATES', 'PRICE', '999.99', 'NO', 0),
+          ('HR', 'RATES', 'BIG', '1000', 'NO', 0),
+          ('HR', 'RATES', 'ANY', '123456789012', 'NO', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(db)
+    sql = result.sql
+    assert "price numeric(5,2) DEFAULT 999.99" in sql
+    assert '"any" numeric DEFAULT 123456789012' in sql
+    assert "tiny numeric(5,10)," in sql
+    assert "big smallint," in sql
+    notes = {r.object_name: r.reason for r in result.residue if r.kind == "note"}
+    assert "cannot fit NUMBER(5,10)" in notes["RATES.TINY"]
+    assert "cannot fit NUMBER(3,0)" in notes["RATES.BIG"]
+
+
+def test_connect_by_across_type_families_refuses(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.execute(
+        "INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality) VALUES"
+        " ('HR', 'V_BAD_TREE', 'VIEW',"
+        ' \'CREATE OR REPLACE VIEW "HR"."V_BAD_TREE" AS SELECT "EMP_ID"'
+        ' FROM "HR"."EMP" CONNECT BY PRIOR "EMP_ID" = "HIRED"\', 1, \'full\')'
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    # The number-to-number hierarchy still converts; the mixed one declines.
+    assert "WITH RECURSIVE hierarchy" in result.sql
+    assert "v_bad_tree" not in result.sql
+    reasons = {r.object_name: r.reason for r in result.residue if r.kind == "view"}
+    assert "Oracle converts implicitly" in reasons["V_BAD_TREE"]
