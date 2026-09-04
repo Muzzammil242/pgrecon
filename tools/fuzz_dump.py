@@ -1294,9 +1294,9 @@ class Estate:
             )
         if roll < 0.40 and num and txt:
             return (
-                [txt.name, "CNT", "TOTAL"],
-                f"SELECT {q(txt.name)}, COUNT(*) AS CNT, SUM(NVL({q(num.name)}, 0))"
-                f" AS TOTAL\n  FROM {t}\n GROUP BY {q(txt.name)}",
+                [txt.name, "AGG_CNT", "AGG_TOTAL"],
+                f"SELECT {q(txt.name)}, COUNT(*) AS AGG_CNT, SUM(NVL({q(num.name)}, 0))"
+                f" AS AGG_TOTAL\n  FROM {t}\n GROUP BY {q(txt.name)}",
                 deps,
             )
         if roll < 0.50 and len(self.tables) > 1:
