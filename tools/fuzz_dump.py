@@ -1152,11 +1152,22 @@ class Estate:
                     (
                         c
                         for c in table.columns
-                        if c is not num and c.data_type in NUMERIC | TEXTUAL
+                        if c is not num
+                        and (
+                            c.data_type in TEXTUAL
+                            or (
+                                c.data_type in NUMERIC
+                                and (
+                                    c.precision is None
+                                    or c.precision - (c.scale or 0) >= 4
+                                )
+                            )
+                        )
                     ),
                     None,
                 )
                 if other is not None:
+                    # The second key must hold its bound too (ORA-14036).
                     key.append(other.name)
                     second = "200" if other.data_type in NUMERIC else "'X'"
                     parts = [
