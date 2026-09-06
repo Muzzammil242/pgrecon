@@ -1197,32 +1197,37 @@ class Estate:
             pname, high, _ = parts[-1]
             parts[-1] = (pname, (high or "")[:10], 1)
         if ptype in ("RANGE", "LIST") and rng.random() < 0.3:
-            sub = "HASH" if num else "LIST"
-            subkey = num.name if num else (txt.name if txt else key[0])
-            self.add("part_subkey_columns.csv", OWNER, name, subkey, 1)
-            # The same width rule for list subpartition values.
-            sub_first = "'S1'"
-            if (
-                sub == "LIST"
-                and txt
-                and (char_facts(txt.data_type, txt.ddl)[0] or 9) < 2
-            ):
-                sub_first = "'S'"
-            for pname, _, _ in parts:
-                for s in range(2):
-                    high = (
-                        None if sub == "HASH" else (sub_first if s == 0 else "DEFAULT")
-                    )
-                    self.add(
-                        "part_subpartitions.csv",
-                        OWNER,
-                        name,
-                        pname,
-                        f"{pname}_SP{s + 1}",
-                        s + 1,
-                        high,
-                        0,
-                    )
+            # A subpartition key must be a real column of the right kind,
+            # distinct from the partition key: HASH over a numeric, LIST
+            # over a string. Without one there is no composite layout;
+            # Oracle would refuse list values on a DATE key just as
+            # PostgreSQL does.
+            sub_col = None
+            if num is not None and num.name not in key:
+                sub, sub_col = "HASH", num
+            elif txt is not None and txt.name not in key:
+                sub, sub_col = "LIST", txt
+            if sub_col is not None:
+                self.add("part_subkey_columns.csv", OWNER, name, sub_col.name, 1)
+                width = char_facts(sub_col.data_type, sub_col.ddl)[0] or 9
+                sub_first = "'S1'" if width >= 2 else "'S'"
+                for pname, _, _ in parts:
+                    for s in range(2):
+                        high = (
+                            None
+                            if sub == "HASH"
+                            else (sub_first if s == 0 else "DEFAULT")
+                        )
+                        self.add(
+                            "part_subpartitions.csv",
+                            OWNER,
+                            name,
+                            pname,
+                            f"{pname}_SP{s + 1}",
+                            s + 1,
+                            high,
+                            0,
+                        )
         count = 1048575 if interval else len(parts)
         self.add("part_tables.csv", OWNER, name, ptype, sub, count, interval)
         for pos, col in enumerate(key, start=1):
