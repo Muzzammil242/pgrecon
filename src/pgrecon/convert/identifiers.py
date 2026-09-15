@@ -305,6 +305,7 @@ def _fold_identifiers(tree: Expr) -> Expr:
     stamps = [node for node in tree.walk() if _func_name(node) == "SYSTIMESTAMP"]
     for node in stamps:
         node.replace(exp.CurrentTimestamp())
+    _fold_day_arithmetic(tree)
     # Oracle GROUPING_ID(a, b) and PostgreSQL GROUPING(a, b) return
     # the same bit vector; only the name differs.
     grouping = [n for n in tree.walk() if isinstance(n, exp.GroupingId)]
@@ -448,6 +449,95 @@ _DATE_SOURCES = {
 }
 
 
+def _is_numeric_expr(node: Expr) -> bool:
+    """A number the tree can prove: literals and arithmetic over them."""
+    if isinstance(node, exp.Literal):
+        return not node.is_string
+    if isinstance(node, exp.Neg | exp.Paren | exp.Cast):
+        return _is_numeric_expr(node.this)
+    if isinstance(node, exp.Add | exp.Sub | exp.Mul | exp.Div):
+        return _is_numeric_expr(node.this) and _is_numeric_expr(node.expression)
+    return False
+
+
+def _is_date_source(node: Expr) -> bool:
+    """A value the tree knows is a date: the pseudo-columns and builders."""
+    return (
+        isinstance(node, exp.CurrentTimestamp | exp.CurrentDate)
+        or _func_name(node) in _DATE_SOURCES
+    )
+
+
+def _days_as_interval(days: Expr) -> Expr:
+    factor = days if isinstance(days, exp.Literal | exp.Paren) else exp.Paren(this=days)
+    return exp.Mul(
+        this=factor, expression=exp.Interval(this=exp.Literal.string("1 day"))
+    )
+
+
+def _fold_day_arithmetic(tree: Expr) -> None:
+    """Rewrite date +/- number where the tree knows the date side.
+
+    Oracle counts the number as days: SYSDATE - 1 is yesterday and
+    SYSTIMESTAMP - 5/1440 is five minutes ago. PostgreSQL has no
+    operator between a timestamp and a number and rejects the view or
+    check at CREATE time, so the number becomes a multiple of one day.
+    Over a TIMESTAMP Oracle hands back a DATE, dropping fractional
+    seconds; the interval form keeps them, a difference visible only
+    at sub-second resolution. A column on the date side is left alone
+    here - its type is known only to callers, who guard it by name.
+    """
+    for node in list(tree.walk()):
+        if not isinstance(node, exp.Add | exp.Sub):
+            continue
+        left, right = node.this, node.expression
+        if _is_date_source(left) and _is_numeric_expr(right):
+            node.set("expression", _days_as_interval(right))
+        elif (
+            isinstance(node, exp.Add)
+            and _is_numeric_expr(left)
+            and _is_date_source(right)
+        ):
+            node.set("this", _days_as_interval(left))
+
+
+def _date_arithmetic_guard(
+    tree: Expr, date_columns: set[str], number_columns: set[str] | None = None
+) -> str | None:
+    """Why date arithmetic over known columns cannot ship, or None.
+
+    The fold rewrites SYSDATE + n because it knows SYSDATE is a date;
+    a column's type reaches here only through the caller. A date
+    column plus a bare number, or a date plus a number column, is a
+    type error on PostgreSQL and Oracle's days-arithmetic in disguise.
+    """
+    numbers = number_columns or set()
+    for node in tree.walk():
+        if not isinstance(node, exp.Add | exp.Sub):
+            continue
+        pairs = ((node.this, node.expression), (node.expression, node.this))
+        for side, other in pairs:
+            if (
+                isinstance(side, exp.Column)
+                and side.name.upper() in date_columns
+                and _is_numeric_expr(other)
+            ):
+                return (
+                    f"{side.name.upper()} is a date column and the number means"
+                    " days; rewrite the arithmetic with an interval by hand"
+                )
+            if (
+                _is_date_source(side)
+                and isinstance(other, exp.Column)
+                and other.name.upper() in numbers
+            ):
+                return (
+                    f"{other.name.upper()} is a number column that Oracle counts"
+                    " as days; rewrite the arithmetic with an interval by hand"
+                )
+    return None
+
+
 def _date_function_guard(folded: str, date_columns: set[str]) -> str | None:
     """Why a folded expression misuses a date, or None.
 
@@ -481,7 +571,7 @@ def _date_function_guard(folded: str, date_columns: set[str]) -> str | None:
                 f"{name} over a date expression has no PostgreSQL counterpart;"
                 " use date_trunc by hand"
             )
-    return None
+    return _date_arithmetic_guard(tree, date_columns)
 
 
 _TEXT_FUNCS = {

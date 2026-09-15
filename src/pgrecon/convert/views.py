@@ -9,7 +9,12 @@ from sqlglot import Expr, exp
 from sqlglot.errors import ErrorLevel, SqlglotError
 from sqlglot.transforms import eliminate_join_marks
 
-from pgrecon.convert.identifiers import _fold_identifiers, _trunc_unit_guard, ident
+from pgrecon.convert.identifiers import (
+    _date_arithmetic_guard,
+    _fold_identifiers,
+    _trunc_unit_guard,
+    ident,
+)
 from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
 from pgrecon.inventory.loader import PARSE_NORMALIZATIONS
@@ -127,6 +132,25 @@ def _view_guard(
             if unknown:
                 return f"references {unknown[0]}, which is not a column of {sources[0]}"
     return None
+
+
+def _date_column_guard(
+    tree: Expr, view_name: str, families: Callable[[str], dict[str, str]]
+) -> str | None:
+    """Why day arithmetic over the source table's columns cannot ship.
+
+    The fold only knows the pseudo-columns are dates; over one source
+    table the converted columns' families are known, so a date column
+    plus a number, or SYSDATE minus a number column, declines by name
+    instead of failing at CREATE VIEW.
+    """
+    sources = {t.name.upper() for t in tree.find_all(exp.Table)} - {view_name.upper()}
+    if len(sources) != 1:
+        return None
+    known = families(next(iter(sources)))
+    dates = {c for c, f in known.items() if f == "datetime"}
+    numbers = {c for c, f in known.items() if f == "number"}
+    return _date_arithmetic_guard(tree, dates, numbers)
 
 
 def _connect_by_view(
@@ -422,7 +446,9 @@ def _emit_views(
                         )
                     )
                     continue
-                guard = _view_guard(folded, name, emitted, dropped, created_views)
+                guard = _view_guard(
+                    folded, name, emitted, dropped, created_views
+                ) or _date_column_guard(folded, name, families)
                 if guard is not None:
                     residue.append(Residue(r["owner"], name, "view", guard))
                     continue
@@ -452,7 +478,9 @@ def _emit_views(
                 )
             )
             continue
-        guard = _view_guard(tree, name, emitted, dropped, created_views)
+        guard = _view_guard(
+            tree, name, emitted, dropped, created_views
+        ) or _date_column_guard(tree, name, families)
         if guard is not None:
             residue.append(Residue(r["owner"], name, "view", guard))
             continue

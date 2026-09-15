@@ -276,6 +276,52 @@ def test_expression_guards_sysop_and_systimestamp() -> None:
     assert _fold_expression("GROUPING_ID(a, b)") == "GROUPING(a, b)"
 
 
+def test_day_arithmetic_over_known_dates_becomes_an_interval() -> None:
+    from pgrecon.convert.identifiers import _fold_expression
+
+    # Oracle counts the number as days; PostgreSQL has no operator for
+    # a timestamp and a number, so the pseudo-columns get an interval.
+    assert _fold_expression("SYSTIMESTAMP - (5/1440)") == (
+        "CURRENT_TIMESTAMP - (CAST(5 AS DECIMAL) / 1440) * INTERVAL '1 day'"
+    )
+    assert _fold_expression("SYSDATE + 1") == "CURRENT_TIMESTAMP + 1 * INTERVAL '1 day'"
+    assert _fold_expression("1 + SYSDATE") == "1 * INTERVAL '1 day' + CURRENT_TIMESTAMP"
+    assert _fold_expression("TO_DATE('2020-01-01', 'YYYY-MM-DD') + 7") == (
+        "TO_DATE('2020-01-01', 'YYYY-MM-DD') + 7 * INTERVAL '1 day'"
+    )
+    # Plain arithmetic is not touched.
+    assert _fold_expression("salary - 1") == "salary - 1"
+
+
+def test_day_arithmetic_over_date_columns_declines_by_name(facts_db: Path) -> None:
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO constraints (owner, constraint_name, table_name, type)
+          VALUES ('HR', 'EMP_SPAN_CK', 'EMP', 'C');
+        INSERT INTO check_conditions (owner, constraint_name, condition, truncated)
+          VALUES ('HR', 'EMP_SPAN_CK', '"HIRED" + 1 > "HIRED"', 0);
+        INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality) VALUES
+          ('HR', 'V_RECENT', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_RECENT" AS SELECT "ENAME"'
+           || ' FROM "HR"."EMP" WHERE "HIRED" > SYSDATE - 30', 1, 'full'),
+          ('HR', 'V_SPAN', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_SPAN" AS SELECT "ENAME"'
+           || ' FROM "HR"."EMP" WHERE "HIRED" + 30 > SYSDATE', 1, 'full');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    sql = result.sql
+    assert "hired > CURRENT_TIMESTAMP - 30 * INTERVAL '1 day'" in sql
+    assert "emp_span_ck" not in sql
+    assert "v_span" not in sql
+    reasons = {r.object_name: r.reason for r in result.residue}
+    assert "HIRED is a date column" in reasons["EMP_SPAN_CK"]
+    assert "HIRED is a date column" in reasons["V_SPAN"]
+
+
 def test_condition_concatenation_null_safe() -> None:
     # The sqlglot lane (checks, defaults, trigger WHEN, views) gets
     # the same Oracle NULL-as-empty concatenation semantics as the
