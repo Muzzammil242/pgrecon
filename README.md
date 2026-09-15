@@ -1,7 +1,7 @@
 # <img src=".github/logo.svg" width="32" alt=""> pgrecon
 
 [![CI](https://github.com/Muzzammil242/pgrecon/actions/workflows/ci.yml/badge.svg)](https://github.com/Muzzammil242/pgrecon/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/pgrecon.svg)](https://pypi.org/project/pgrecon/)
+[![PyPI](https://img.shields.io/pypi/v/pgrecon.svg?cacheSeconds=3600)](https://pypi.org/project/pgrecon/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 pgrecon is an open-source Oracle to PostgreSQL migration assessment and
