@@ -20,6 +20,12 @@ run by the DBA with a read-only account; only files cross the boundary.
 The analysis side needs Python 3.11 or newer; the extraction side needs
 nothing but SQL*Plus.
 
+If it refuses something on your schema, open an issue with the residue
+line, or say so in
+[Discussions](https://github.com/Muzzammil242/pgrecon/discussions).
+Anonymised is fine; residue never contains data. Anything in it gets
+fixed within the week.
+
 ## How it works
 
     pgrecon script   ->  extraction script, reviewed and run by the DBA
