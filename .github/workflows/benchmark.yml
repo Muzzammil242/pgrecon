@@ -1,0 +1,180 @@
+name: Benchmark
+
+# Re-measures the pgrecon row of the public benchmark: the eight public
+# schemas (Oracle's HR, OE and CO; utPLSQL, PLJSON, Logger and
+# Alexandria from their own repositories; RECON_TEST from this
+# repository) installed into a live Oracle XE 21c, extracted with the
+# packaged script, converted, and applied to a live PostgreSQL 16 with
+# check_function_bodies on and ON_ERROR_STOP off. The count of
+# statements PostgreSQL rejects and the coverage figure land in the job
+# summary and in the results artifact. Manual only: it is a measurement,
+# not a gate.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/benchmark.yml"
+      - "tools/benchmark_measure.py"
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ORA: system/ci@localhost/XEPDB1
+      SYSDBA: sys/ci@localhost/XEPDB1 as sysdba
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Start Oracle XE 21c
+        run: |
+          docker run -d --name oracledb -e ORACLE_PASSWORD=ci gvenzl/oracle-xe:21
+          for i in $(seq 1 90); do
+            if docker logs oracledb 2>&1 | grep -q "DATABASE IS READY TO USE"; then
+              echo "ready after ~$((i*10))s"; break
+            fi
+            sleep 10
+          done
+          docker logs oracledb 2>&1 | grep -q "DATABASE IS READY TO USE"
+
+      - name: Fetch the public schemas
+        run: |
+          mkdir -p bench/log
+          git clone -q --depth 1 --branch v21.1 https://github.com/oracle-samples/db-sample-schemas bench/dss
+          git clone -q --depth 1 https://github.com/utPLSQL/utPLSQL bench/utplsql
+          git clone -q --depth 1 https://github.com/pljson/pljson bench/pljson
+          git clone -q --depth 1 https://github.com/OraOpenSource/Logger bench/logger-repo
+          git clone -q --depth 1 https://github.com/mortenbra/alexandria-plsql-utils bench/alexandria
+          zip=$(ls bench/logger-repo/releases/*.zip | sort -V | tail -1)
+          echo "Logger release: $zip"
+          mkdir -p bench/logger && unzip -q "$zip" -d bench/logger
+          # the release zip may carry one top-level folder; flatten it
+          if [ ! -f bench/logger/logger_install.sql ]; then
+            inner=$(find bench/logger -maxdepth 2 -name logger_install.sql | head -1)
+            [ -n "$inner" ] && mv "$(dirname "$inner")"/* bench/logger/
+          fi
+          ls bench/logger | head
+          sed "s#@localhost/XEPDB1#@localhost/XEPDB1#" tests/fixtures/synthetic/synthetic_schema.sql > bench/recon_test.sql
+          {
+            echo "db-sample-schemas v21.1"
+            for r in utplsql pljson logger-repo alexandria; do
+              echo "$r $(git -C bench/$r rev-parse --short HEAD)"
+            done
+          } > bench/versions.txt
+          cat bench/versions.txt
+          docker cp bench oracledb:/tmp/bench
+          docker exec oracledb bash -c "find /tmp/bench/dss -type f \( -name '*.sql' -o -name '*.dat' \) -exec sed -i 's#__SUB__CWD__#/tmp/bench/dss#g' {} +"
+
+      - name: Install the schemas
+        run: |
+          run_sql() {  # run_sql <label> <workdir> <connect> <script and args>
+            local label=$1 dir=$2 conn=$3; shift 3
+            docker exec oracledb bash -c "cd $dir && sqlplus -s $conn $*" > "bench/log/$label.log" 2>&1 || true
+            echo "== $label: $(grep -c 'ORA-' bench/log/$label.log || true) ORA- lines, $(wc -l < bench/log/$label.log) lines"
+            tail -2 "bench/log/$label.log"
+          }
+          cat > bench/users.sql <<'SQL'
+          create user pljson identified by pljson default tablespace users quota unlimited on users;
+          grant connect, resource, create view, create type, create synonym to pljson;
+          create user logger_user identified by logger default tablespace users quota unlimited on users;
+          grant connect, resource, create view, create job, create table, create sequence, create trigger, create procedure, create any context, create synonym to logger_user;
+          create user alex identified by alex default tablespace users quota unlimited on users;
+          grant connect, resource, create view, create type, create synonym, create procedure, create sequence, create table to alex;
+          grant execute on sys.dbms_crypto to alex;
+          grant execute on sys.utl_file to alex;
+          grant execute on sys.utl_http to alex;
+          grant execute on sys.utl_smtp to alex;
+          grant execute on sys.utl_tcp to alex;
+          exit
+          SQL
+          docker cp bench/users.sql oracledb:/tmp/bench/users.sql
+          run_sql recon_test /tmp/bench "$ORA" @recon_test.sql
+          run_sql hr /tmp/bench/dss "$ORA" @human_resources/hr_main.sql hr USERS TEMP ci /tmp/bench/log/ localhost/XEPDB1
+          run_sql oe /tmp/bench/dss "$ORA" @order_entry/oe_main.sql oe USERS TEMP hr ci /tmp/bench/dss/order_entry/ /tmp/bench/log/ v3 localhost/XEPDB1
+          run_sql co /tmp/bench/dss/customer_orders "$ORA" @co_main.sql co localhost/XEPDB1 USERS TEMP
+          run_sql users /tmp/bench "$SYSDBA" @users.sql
+          run_sql utplsql /tmp/bench/utplsql/source "$SYSDBA" @install_headless.sql UT3 ut3 USERS
+          run_sql pljson /tmp/bench/pljson "pljson/pljson@localhost/XEPDB1" @install.sql
+          run_sql logger /tmp/bench/logger "logger_user/logger@localhost/XEPDB1" @logger_install.sql
+          run_sql alexandria /tmp/bench/alexandria/setup "alex/alex@localhost/XEPDB1" @install.sql
+          cat > bench/counts.sql <<'SQL'
+          set pagesize 100 feedback off
+          select owner, count(*) as objects, sum(case when status <> 'VALID' then 1 else 0 end) as invalid
+            from all_objects
+           where owner in ('RECON_TEST','HR','OE','CO','UT3','PLJSON','LOGGER_USER','ALEX')
+           group by owner order by owner;
+          exit
+          SQL
+          docker cp bench/counts.sql oracledb:/tmp/bench/counts.sql
+          docker exec oracledb bash -c "cd /tmp/bench && sqlplus -s $ORA @counts.sql" | tee bench/log/counts.txt
+
+      - name: Extract every schema with the packaged script
+        run: |
+          uv run pgrecon script --out extract.sql
+          docker cp extract.sql oracledb:/tmp/extract.sql
+          mkdir -p dumps
+          for owner in RECON_TEST HR OE CO UT3 PLJSON LOGGER_USER ALEX; do
+            docker exec oracledb bash -c \
+              "mkdir -p /tmp/dump/$owner && cd /tmp/dump/$owner && sqlplus -s $ORA @/tmp/extract.sql $owner" \
+              > "bench/log/extract_$owner.log" 2>&1 || true
+            docker cp "oracledb:/tmp/dump/$owner" "dumps/$owner"
+            echo "$owner: $(ls dumps/$owner | wc -l) spool files"
+            if grep -l "^ERROR at line" dumps/$owner/* ; then
+              echo "a spool for $owner holds an Oracle error instead of rows"; exit 1
+            fi
+          done
+
+      - name: Measure - convert, apply, count
+        env:
+          PGPASSWORD: ci
+        run: |
+          status=0
+          uv run python tools/benchmark_measure.py dumps \
+            --pg "host=127.0.0.1 user=postgres password=ci" --out bench-work || status=$?
+          ver=$(uv run python -c "import importlib.metadata as m; print(m.version('pgrecon'))")
+          {
+            echo "## Benchmark, pgrecon $ver at $(git rev-parse --short HEAD)"
+            echo
+            echo "Oracle XE 21c (gvenzl/oracle-xe:21), PostgreSQL 16, check_function_bodies on, ON_ERROR_STOP off."
+            echo
+            cat bench-work/results.md
+            echo
+            echo '```'
+            cat bench/versions.txt
+            echo
+            cat bench/log/counts.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Keep everything
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ github.run_number }}
+          path: |
+            dumps/
+            bench-work/
+            bench/log/
+            bench/versions.txt
+          retention-days: 30
