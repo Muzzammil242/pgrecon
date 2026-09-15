@@ -87,7 +87,7 @@
 <body>
 
 <div class="masthead">
-<h1>pgrecon<span class="ver">v0.7.0</span><br><small>Oracle to PostgreSQL migration reconnaissance</small></h1>
+<h1>pgrecon<span class="ver">v0.7.1</span><br><small>Oracle to PostgreSQL migration reconnaissance</small></h1>
 <p class="top">Assess an Oracle estate and convert its schema from an offline dump.
 The tool never connects to your database.</p>
 </div>
@@ -135,8 +135,8 @@ statements PostgreSQL rejected. August 2026.</p>
 <div class="tablewrap">
 <table>
   <tr><th>Converter</th><th>Apply errors</th><th>Notes</th></tr>
-  <tr class="us"><td><strong>pgrecon 0.6</strong></td><td class="n zero">0</td>
-      <td>every decline a named residue line</td></tr>
+  <tr class="us"><td><strong>pgrecon 0.7.1</strong></td><td class="n zero">0</td>
+      <td>every decline a named residue line; re-measured 2026-09-15 in CI</td></tr>
   <tr><td>CYBERTEC ora_migrator</td><td class="n">40</td>
       <td>plus two whole-schema crashes; PL/SQL out of scope by design</td></tr>
   <tr><td>Ora2Pg v25</td><td class="n">77</td>
@@ -146,18 +146,21 @@ statements PostgreSQL rejected. August 2026.</p>
   <tr><td>AWS SCT</td><td class="n">481</td>
       <td>surviving objects depend on the aws_oracle_ext runtime extension</td></tr>
 </table>
-<p class="fine">The pgrecon row is the 0.6.0 measurement of 2026-08-27. 0.7.0
-shipped on 2026-09-03 without a re-run; its changes are guarded by CI, which
-applies the converter's output to PostgreSQL 16, 17, and 18 on every commit
-and fuzzes it nightly. Method and fine print on the
-<a href="benchmark.html">benchmark page</a>.</p>
+<p class="fine">The pgrecon row was re-measured at 0.7.1 on 2026-09-15: the
+eight public schemas installed into a live Oracle XE 21c inside GitHub
+Actions, extracted, converted, and applied to PostgreSQL 16 - 423 statements,
+zero rejected. Between full runs the converter's output is applied to
+PostgreSQL 16, 17, and 18 on every commit and fuzzed nightly. Method, the run
+itself, and fine print on the <a href="benchmark.html">benchmark page</a>.</p>
 </div>
-<p class="fine">The claim, precisely: across these nine schemas the converter
-emitted zero statements PostgreSQL rejected, and everything it cannot prove
-is a named line in the residue report. It does not mean everything converts:
-51 percent of all objects converted mechanically, above 90 percent on the
-business-shaped schemas, and the gap is dominated by object types and
-packages, which nothing converts mechanically. One hierarchical view was
+<p class="fine">The claim, precisely: the converter emitted zero statements
+PostgreSQL rejected, on all nine schemas in the August round and again on
+the eight public ones at 0.7.1, and everything it cannot prove is a named
+line in the residue report. It does not mean everything converts: at 0.7.1,
+41 percent of the objects the converter is answerable for were created and
+the rest declined by name, above 95 percent on the business-shaped schemas,
+with the gap dominated by object types and packages, which nothing converts
+mechanically. One hierarchical view was
 additionally verified row-for-row against a live Oracle database running the
 original. <a href="benchmark.html">Methodology, tool versions, per-tool
 accommodations, and how to reproduce it</a>.</p>

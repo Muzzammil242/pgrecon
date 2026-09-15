@@ -72,7 +72,8 @@
 <h1>Benchmark methodology<br><small>five converters, nine schemas, one live PostgreSQL 16</small></h1>
 <p class="top">Everything behind the numbers on the
 <a href="./">pgrecon page</a>: what ran, which versions, what each tool
-needed to run at all, and how to reproduce it. August 2026.</p>
+needed to run at all, and how to reproduce it. August 2026; the
+pgrecon row re-measured at 0.7.1 on 2026-09-15.</p>
 </div>
 <p class="nav">
   <a href="./">Back to pgrecon</a>
@@ -121,7 +122,7 @@ requires one, in which case that is recorded below.</p>
 <div class="tablewrap">
 <table>
   <tr><th>Tool</th><th>Version / mode</th></tr>
-  <tr class="us"><td>pgrecon</td><td>current release 0.7.0 (2026-09-03), <code>pgrecon convert</code> from an offline dump. The numbers in this row come from 0.6.0, measured 2026-08-27; 0.7.0 is not yet re-measured, see the note under the results table.</td></tr>
+  <tr class="us"><td>pgrecon</td><td>0.7.1, <code>pgrecon convert</code> from an offline dump; re-measured 2026-09-15 on the eight public schemas by the repository's <a href="https://github.com/Muzzammil242/pgrecon/actions/workflows/benchmark.yml">Benchmark workflow</a> (<a href="https://github.com/Muzzammil242/pgrecon/actions/runs/34961950545">the run</a>)</td></tr>
   <tr><td>CYBERTEC ora_migrator</td><td>current release, August 2026, over oracle_fdw 2.9.0 (Oracle Instant Client 23)</td></tr>
   <tr><td>Ora2Pg</td><td>v25.0, TYPE=TABLE,VIEW,SEQUENCE,TRIGGER,FUNCTION,PROCEDURE,PACKAGE</td></tr>
   <tr><td>EDB Migration Toolkit</td><td>55.13.0, <code>-offlineMigration</code>, community PostgreSQL target</td></tr>
@@ -177,8 +178,8 @@ needed beyond its documentation is recorded here.</p>
 <div class="tablewrap">
 <table>
   <tr><th>Converter</th><th>Statements rejected</th><th>Notes</th></tr>
-  <tr class="us"><td><strong>pgrecon 0.6</strong></td><td class="n zero">0</td>
-      <td>every decline a named residue line</td></tr>
+  <tr class="us"><td><strong>pgrecon 0.7.1</strong></td><td class="n zero">0</td>
+      <td>423 statements over the eight public schemas, re-measured 2026-09-15 in CI; the August round on all nine was also 0; every decline a named residue line</td></tr>
   <tr><td>CYBERTEC ora_migrator</td><td class="n">40</td>
       <td>plus two whole-schema crashes</td></tr>
   <tr><td>Ora2Pg v25</td><td class="n">77</td>
@@ -189,32 +190,44 @@ needed beyond its documentation is recorded here.</p>
       <td>clean on HR only; 214 on utPLSQL, 76 on Alexandria, 73 on PLJSON</td></tr>
 </table>
 </div>
-<p class="fine">Coverage, stated with the same precision: pgrecon
-converted 51 percent of all objects mechanically - above 90 percent
-on the business-shaped schemas, far below on the object-type and
-package showcases, which nothing converts mechanically. Every
-unconverted object is one line in the residue report with a reason.
-One hierarchical view was additionally verified row-for-row against
-the live Oracle running the original. pgrecon's column was
-re-run in full at 0.6.0 - fresh extractions of all nine schemas,
-converted and applied 2026-08-27, zero rejected statements; the
-other tools' outputs are unchanged from their original runs.
-pgrecon 0.7.0 shipped on 2026-09-03 without a re-run of this table:
-its changes are guarded instead by CI, which applies the converter's
-output to PostgreSQL 16, 17, and 18 on every commit and fuzzes it
-nightly against adversarial schemas; the row is re-measured at the
-next full run.</p>
+<p class="fine">Coverage, stated with the same precision. At 0.7.1 on
+the eight public schemas (2026-09-15, in CI): 594 objects the
+converter is answerable for - tables, views, materialized views,
+sequences, synonyms, routines, triggers, indexes, and constraints -
+of which 241 were created in the emitted DDL, 41 percent; 353 were
+declined by name in the residue report; none were lost. Above 95
+percent on HR and CO, 76 percent on RECON_TEST, 81 percent on
+Logger, 40 percent on OE, whose object types nothing converts
+mechanically, and 4 to 25 percent on the package libraries PLJSON,
+utPLSQL, and Alexandria, where the residue points at the package
+flattener. The August round, all nine schemas and a count over every
+object, put the figure at 51 percent. One hierarchical view was
+additionally verified row-for-row against the live Oracle running
+the original.</p>
+<p class="fine">The other tools' outputs are unchanged from their
+August runs; none of them has released a new version since. Between
+full runs the converter is guarded by CI, which applies its output to
+PostgreSQL 16, 17, and 18 on every commit and fuzzes it nightly
+against adversarial schemas.</p>
 
 <h2>Reproduce it</h2>
 <pre>podman run -d --name oracle-xe -e ORACLE_PASSWORD=... gvenzl/oracle-xe:21
 podman run -d --name pg-target -e POSTGRES_PASSWORD=... postgres:16
 # install HR/OE/CO from db-sample-schemas v21.1, the four projects
 # from their repositories, RECON_TEST from this repo's fixture
-pip install pgrecon==0.6.0      # the version the pgrecon row was measured with
+pip install pgrecon==0.7.1      # the version the pgrecon row was measured with
 pgrecon script            # extraction script; run per schema via sqlplus
 pgrecon load dump_dir --db est.db
 pgrecon convert --db est.db
-psql -qX -f schema_pg.sql 2>&1 | grep -c ^ERROR</pre>
+psql -qX -f schema_pg.sql 2>&1 | grep -c ERROR:</pre>
+<p>Or fork the repository and run its
+<a href="https://github.com/Muzzammil242/pgrecon/actions/workflows/benchmark.yml">Benchmark
+workflow</a> from the Actions tab: it starts Oracle XE 21c and
+PostgreSQL 16 inside the job, installs the eight public schemas,
+extracts, converts, applies, and prints the table above with the
+count of statements rejected and the coverage per schema. That is
+how the 2026-09-15 numbers were produced, and the run, its logs, and
+every dump, DDL file, and residue report it made are public.</p>
 <p>Run each competing tool per its own documentation against the
 same schemas, apply with the same psql invocation, count the same
 way. If a number here looks wrong, that is a fair reaction -
