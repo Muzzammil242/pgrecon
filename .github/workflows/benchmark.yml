@@ -82,8 +82,11 @@ jobs:
             done
           } > bench/versions.txt
           cat bench/versions.txt
+          # the sample-schema scripts carry a path placeholder; point it
+          # at where the tree will live inside the container
+          find bench/dss -type f \( -name '*.sql' -o -name '*.dat' \) \
+            -exec sed -i 's#__SUB__CWD__#/tmp/bench/dss#g' {} +
           docker cp bench oracledb:/tmp/bench
-          docker exec oracledb bash -c "find /tmp/bench/dss -type f \( -name '*.sql' -o -name '*.dat' \) -exec sed -i 's#__SUB__CWD__#/tmp/bench/dss#g' {} +"
 
       - name: Install the schemas
         run: |
