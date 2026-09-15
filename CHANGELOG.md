@@ -2,6 +2,26 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## 0.7.1 - 2026-09-15
+
+- The benchmark row is measured in CI. A manual workflow installs the
+  eight public benchmark schemas - Oracle's HR, OE and CO, utPLSQL,
+  PLJSON, Logger, Alexandria, and RECON_TEST - into a live Oracle XE
+  21c, extracts them with the packaged script, converts, applies to
+  PostgreSQL 16 with ON_ERROR_STOP off, and reports rejected
+  statements and coverage per schema, counted the way the fuzzer
+  counts: every answerable object is created, refused by name, or
+  lost.
+- Its first run found two Logger views PostgreSQL rejected. Oracle
+  date arithmetic with a number counts days, and SYSTIMESTAMP - 5/1440
+  has no operator on PostgreSQL. The fold now writes n * INTERVAL
+  '1 day' where the date side is a pseudo-column or a date builder,
+  and declines by name a date column plus a number, or a date minus a
+  number column, wherever the column families are known: checks,
+  defaults, index expressions, and single-source views. The re-run:
+  423 statements over 594 answerable objects, zero rejected, none
+  lost.
+
 ## 0.7.0 - 2026-09-03
 
 - The full Oracle loop runs in CI, nightly and on any change to the
