@@ -24,7 +24,7 @@ If it refuses something on your schema, open an issue with the residue
 line, or say so in
 [Discussions](https://github.com/Muzzammil242/pgrecon/discussions).
 Anonymised is fine; residue never contains data. Anything in it gets
-fixed within the week.
+fixed within the week. Email works too: muzzammil@umaish.com.
 
 ## How it works
 
