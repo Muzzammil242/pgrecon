@@ -121,8 +121,9 @@ requires one, in which case that is recorded below.</p>
 <p>Two rows were measured later than the August round, in GitHub
 Actions with the same image and the same eight public schemas, the
 private lab schema excluded: pgrecon at 0.7.1 on 2026-09-15, and
-Dalibo's PostgreSQL Migrator 1.0.0 on 2026-09-19. Both runs, their
-logs, and the SQL they produced are public.</p>
+Dalibo's PostgreSQL Migrator 1.0.0 on 2026-09-19. The pgrecon run, its
+logs, and its SQL are public; the Dalibo run was a private one-off,
+and its job definition, log, and SQL are available on request.</p>
 
 <h2>Tools and versions</h2>
 <div class="tablewrap">
@@ -130,7 +131,7 @@ logs, and the SQL they produced are public.</p>
   <tr><th>Tool</th><th>Version / mode</th></tr>
   <tr class="us"><td>pgrecon</td><td>0.7.1, <code>pgrecon convert</code> from an offline dump; re-measured 2026-09-15 on the eight public schemas by the repository's <a href="https://github.com/Muzzammil242/pgrecon/actions/workflows/benchmark.yml">Benchmark workflow</a> (<a href="https://github.com/Muzzammil242/pgrecon/actions/runs/34961950545">the run</a>)</td></tr>
   <tr><td>CYBERTEC ora_migrator</td><td>current release, August 2026, over oracle_fdw 2.9.0 (Oracle Instant Client 23)</td></tr>
-  <tr><td>Dalibo PostgreSQL Migrator</td><td>1.0.0 (released 2026-09-04) with transqlate 0.8.0; <code>pg_migrate inspect</code>, <code>convert</code>, <code>dump --schema-only --format plain</code>, connected as SYSTEM, scope set to the eight public schemas; measured 2026-09-19 (<a href="https://github.com/Muzzammil242/pgrecon-lab/actions/runs/35436056680">the run</a>, <a href="https://github.com/Muzzammil242/pgrecon-lab/blob/main/.github/workflows/dalibo-check.yml">the job</a>)</td></tr>
+  <tr><td>Dalibo PostgreSQL Migrator</td><td>1.0.0 (released 2026-09-04) with transqlate 0.8.0; <code>pg_migrate inspect</code>, <code>convert</code>, <code>dump --schema-only --format plain</code>, connected as SYSTEM, scope set to the eight public schemas; measured 2026-09-19 in a private one-off run with the same job shape as the pgrecon row; the job definition, its log, and the SQL it produced are kept offline and available on request</td></tr>
   <tr><td>Ora2Pg</td><td>v25.0, TYPE=TABLE,VIEW,SEQUENCE,TRIGGER,FUNCTION,PROCEDURE,PACKAGE</td></tr>
   <tr><td>EDB Migration Toolkit</td><td>55.13.0, <code>-offlineMigration</code>, community PostgreSQL target</td></tr>
   <tr><td>AWS Schema Conversion Tool</td><td>current build, August 2026, via its batch CLI (.scts scripts)</td></tr>
