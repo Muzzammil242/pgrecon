@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pgrecon benchmark methodology</title>
-<meta name="description" content="How five Oracle-to-PostgreSQL converters were benchmarked against a live PostgreSQL 16: schemas, tool versions, per-tool accommodations, and how to reproduce the numbers.">
+<meta name="description" content="How six Oracle-to-PostgreSQL converters were benchmarked against a live PostgreSQL 16: schemas, tool versions, per-tool accommodations, and how to reproduce the numbers.">
 <meta property="og:title" content="pgrecon benchmark methodology">
-<meta property="og:description" content="Five Oracle-to-PostgreSQL converters, nine schemas, one live PostgreSQL 16: versions, per-tool accommodations, and how to reproduce the numbers.">
+<meta property="og:description" content="Six Oracle-to-PostgreSQL converters, nine schemas, one live PostgreSQL 16: versions, per-tool accommodations, and how to reproduce the numbers.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://muzzammil242.github.io/pgrecon/og.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -69,11 +69,12 @@
 <body>
 
 <div class="masthead">
-<h1>Benchmark methodology<br><small>five converters, nine schemas, one live PostgreSQL 16</small></h1>
+<h1>Benchmark methodology<br><small>six converters, nine schemas, one live PostgreSQL 16</small></h1>
 <p class="top">Everything behind the numbers on the
 <a href="./">pgrecon page</a>: what ran, which versions, what each tool
 needed to run at all, and how to reproduce it. August 2026; the
-pgrecon row re-measured at 0.7.1 on 2026-09-15.</p>
+pgrecon row re-measured at 0.7.1 on 2026-09-15; Dalibo's PostgreSQL
+Migrator added on 2026-09-19.</p>
 </div>
 <p class="nav">
   <a href="./">Back to pgrecon</a>
@@ -117,6 +118,11 @@ error counts.</p>
 schemas. Target: a stock <code>postgres:16</code> container. No
 compatibility extensions installed unless a tool's own output
 requires one, in which case that is recorded below.</p>
+<p>Two rows were measured later than the August round, in GitHub
+Actions with the same image and the same eight public schemas, the
+private lab schema excluded: pgrecon at 0.7.1 on 2026-09-15, and
+Dalibo's PostgreSQL Migrator 1.0.0 on 2026-09-19. Both runs, their
+logs, and the SQL they produced are public.</p>
 
 <h2>Tools and versions</h2>
 <div class="tablewrap">
@@ -124,6 +130,7 @@ requires one, in which case that is recorded below.</p>
   <tr><th>Tool</th><th>Version / mode</th></tr>
   <tr class="us"><td>pgrecon</td><td>0.7.1, <code>pgrecon convert</code> from an offline dump; re-measured 2026-09-15 on the eight public schemas by the repository's <a href="https://github.com/Muzzammil242/pgrecon/actions/workflows/benchmark.yml">Benchmark workflow</a> (<a href="https://github.com/Muzzammil242/pgrecon/actions/runs/34961950545">the run</a>)</td></tr>
   <tr><td>CYBERTEC ora_migrator</td><td>current release, August 2026, over oracle_fdw 2.9.0 (Oracle Instant Client 23)</td></tr>
+  <tr><td>Dalibo PostgreSQL Migrator</td><td>1.0.0 (released 2026-09-04) with transqlate 0.8.0; <code>pg_migrate inspect</code>, <code>convert</code>, <code>dump --schema-only --format plain</code>, connected as SYSTEM, scope set to the eight public schemas; measured 2026-09-19 (<a href="https://github.com/Muzzammil242/pgrecon-lab/actions/runs/35436056680">the run</a>, <a href="https://github.com/Muzzammil242/pgrecon-lab/blob/main/.github/workflows/dalibo-check.yml">the job</a>)</td></tr>
   <tr><td>Ora2Pg</td><td>v25.0, TYPE=TABLE,VIEW,SEQUENCE,TRIGGER,FUNCTION,PROCEDURE,PACKAGE</td></tr>
   <tr><td>EDB Migration Toolkit</td><td>55.13.0, <code>-offlineMigration</code>, community PostgreSQL target</td></tr>
   <tr><td>AWS Schema Conversion Tool</td><td>current build, August 2026, via its batch CLI (.scts scripts)</td></tr>
@@ -158,6 +165,20 @@ needed beyond its documentation is recorded here.</p>
       staging schema's own foreign keys and were never attempted;
       they are counted as crashes, not errors. PL/SQL is out of its
       scope by design and is not counted against it.</li>
+  <li><strong>Dalibo PostgreSQL Migrator:</strong> one. Its
+      inspection reported 20 errors on object-relational and
+      nested-table shapes in OE and utPLSQL and declined to convert;
+      the dump was forced with its documented <code>--force</code>
+      option, which is its own partial-migration path. Nothing else
+      was changed. Version 1.0 marks views, materialized views,
+      routines, packages, triggers, types and partitions as partially
+      implemented, and none of them reached its schema-only dump, so
+      its row is tables, sequences, indexes, keys and checks. Its
+      PL/SQL parser could not read 16 package bodies of the corpus;
+      those are counted as absence, not as errors. One of its
+      rejected statements is PostgreSQL 17 syntax sent to the
+      benchmark's PostgreSQL 16. Data copy and the web UI, its
+      strongest parts, are outside this benchmark's question.</li>
   <li><strong>EDB MTK:</strong> applied from its combined
       per-schema file only (its per-class files repeat the same
       statements; applying both would double-count). Its number is
@@ -182,6 +203,8 @@ needed beyond its documentation is recorded here.</p>
       <td>423 statements over the eight public schemas, re-measured 2026-09-15 in CI; the August round on all nine was also 0; every decline a named residue line</td></tr>
   <tr><td>CYBERTEC ora_migrator</td><td class="n">40</td>
       <td>plus two whole-schema crashes</td></tr>
+  <tr><td>Dalibo PostgreSQL Migrator 1.0</td><td class="n">58</td>
+      <td>of 445 statements on the eight public schemas: 6 tables failed to create (object-type and virtual columns, one ROWID) and 48 of the 58 are their indexes, keys and defaults failing after them; no views or code emitted</td></tr>
   <tr><td>Ora2Pg v25</td><td class="n">77</td>
       <td>49 on OE, 18 on the lab schema, 8 on RECON_TEST; clean on the simple estates</td></tr>
   <tr><td>EDB MTK 55.13</td><td class="n">135</td>

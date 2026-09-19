@@ -131,7 +131,8 @@ from, produced before anyone touches production.</p>
 <p>Nine schemas - Oracle's official HR, OE, and CO samples, plus utPLSQL,
 PLJSON, Logger, Alexandria, and two lab schemas - converted by each tool,
 then applied statement by statement to a live PostgreSQL 16. Errors are
-statements PostgreSQL rejected. August 2026.</p>
+statements PostgreSQL rejected. August 2026; two rows measured since, in
+CI, on the eight public schemas.</p>
 <div class="tablewrap">
 <table>
   <tr><th>Converter</th><th>Apply errors</th><th>Notes</th></tr>
@@ -139,6 +140,8 @@ statements PostgreSQL rejected. August 2026.</p>
       <td>every decline a named residue line; re-measured 2026-09-15 in CI</td></tr>
   <tr><td>CYBERTEC ora_migrator</td><td class="n">40</td>
       <td>plus two whole-schema crashes; PL/SQL out of scope by design</td></tr>
+  <tr><td>Dalibo PostgreSQL Migrator 1.0</td><td class="n">58</td>
+      <td>tables, indexes and sequences only; no views or code emitted; measured 2026-09-19</td></tr>
   <tr><td>Ora2Pg v25</td><td class="n">77</td>
       <td>needed two accommodations to apply at all</td></tr>
   <tr><td>EDB Migration Toolkit 55.13</td><td class="n">135</td>
