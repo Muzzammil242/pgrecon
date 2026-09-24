@@ -1,6 +1,6 @@
 [project]
 name = "pgrecon"
-version = "0.7.1"
+version = "0.7.2"
 description = "Oracle to PostgreSQL migration assessment and schema conversion from an offline dump: inventory, compatibility rules, effort estimate, DDL that applies."
 readme = "README.md"
 requires-python = ">=3.11"

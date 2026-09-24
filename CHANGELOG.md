@@ -2,6 +2,20 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## 0.7.2 - 2026-09-24
+
+- PostgreSQL has no ordering or equality operator for xml or json. A
+  view or materialized view that sorts, groups, deduplicates,
+  partitions a window by, or compares such a column now declines by
+  name instead of shipping a statement PostgreSQL rejects. The nightly
+  schema fuzz found the shape on 2026-09-24: a ROWNUM top-N view over
+  a subquery ordered by an XMLTYPE column. Oracle refuses to sort
+  XMLType too (ORA-22950), so only a view that never compiled carries
+  it.
+- Materialized views now run the same type-aware guards as plain
+  views, the 0.7.1 day-arithmetic guard included; before, they ran
+  neither.
+
 ## 0.7.1 - 2026-09-15
 
 - The benchmark row is measured in CI. A manual workflow installs the
