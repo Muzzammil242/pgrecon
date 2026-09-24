@@ -87,7 +87,7 @@
 <body>
 
 <div class="masthead">
-<h1>pgrecon<span class="ver">v0.7.1</span><br><small>Oracle to PostgreSQL migration reconnaissance</small></h1>
+<h1>pgrecon<span class="ver">v0.7.2</span><br><small>Oracle to PostgreSQL migration reconnaissance</small></h1>
 <p class="top">Assess an Oracle estate and convert its schema from an offline dump.
 The tool never connects to your database.</p>
 </div>
@@ -136,8 +136,8 @@ CI, on the eight public schemas.</p>
 <div class="tablewrap">
 <table>
   <tr><th>Converter</th><th>Apply errors</th><th>Notes</th></tr>
-  <tr class="us"><td><strong>pgrecon 0.7.1</strong></td><td class="n zero">0</td>
-      <td>every decline a named residue line; re-measured 2026-09-15 in CI</td></tr>
+  <tr class="us"><td><strong>pgrecon 0.7.2</strong></td><td class="n zero">0</td>
+      <td>every decline a named residue line; re-measured 2026-09-24 in CI</td></tr>
   <tr><td>CYBERTEC ora_migrator</td><td class="n">40</td>
       <td>plus two whole-schema crashes; PL/SQL out of scope by design</td></tr>
   <tr><td>Dalibo PostgreSQL Migrator 1.0</td><td class="n">58</td>
@@ -149,7 +149,7 @@ CI, on the eight public schemas.</p>
   <tr><td>AWS SCT</td><td class="n">481</td>
       <td>surviving objects depend on the aws_oracle_ext runtime extension</td></tr>
 </table>
-<p class="fine">The pgrecon row was re-measured at 0.7.1 on 2026-09-15: the
+<p class="fine">The pgrecon row was re-measured at 0.7.2 on 2026-09-24: the
 eight public schemas installed into a live Oracle XE 21c inside GitHub
 Actions, extracted, converted, and applied to PostgreSQL 16 - 423 statements,
 zero rejected. Between full runs the converter's output is applied to
@@ -158,8 +158,8 @@ itself, and fine print on the <a href="benchmark.html">benchmark page</a>.</p>
 </div>
 <p class="fine">The claim, precisely: the converter emitted zero statements
 PostgreSQL rejected, on all nine schemas in the August round and again on
-the eight public ones at 0.7.1, and everything it cannot prove is a named
-line in the residue report. It does not mean everything converts: at 0.7.1,
+the eight public ones at 0.7.2, and everything it cannot prove is a named
+line in the residue report. It does not mean everything converts: at 0.7.2,
 41 percent of the objects the converter is answerable for were created and
 the rest declined by name, above 95 percent on the business-shaped schemas,
 with the gap dominated by object types and packages, which nothing converts

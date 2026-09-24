@@ -73,7 +73,7 @@
 <p class="top">Everything behind the numbers on the
 <a href="./">pgrecon page</a>: what ran, which versions, what each tool
 needed to run at all, and how to reproduce it. August 2026; the
-pgrecon row re-measured at 0.7.1 on 2026-09-15; Dalibo's PostgreSQL
+pgrecon row re-measured at 0.7.2 on 2026-09-24; Dalibo's PostgreSQL
 Migrator added on 2026-09-19.</p>
 </div>
 <p class="nav">
@@ -120,7 +120,7 @@ compatibility extensions installed unless a tool's own output
 requires one, in which case that is recorded below.</p>
 <p>Two rows were measured later than the August round, in GitHub
 Actions with the same image and the same eight public schemas, the
-private lab schema excluded: pgrecon at 0.7.1 on 2026-09-15, and
+private lab schema excluded: pgrecon at 0.7.2 on 2026-09-24, and
 Dalibo's PostgreSQL Migrator 1.0.0 on 2026-09-19. The pgrecon run, its
 logs, and its SQL are public; the Dalibo run was a private one-off,
 and its job definition, log, and SQL are available on request.</p>
@@ -129,7 +129,7 @@ and its job definition, log, and SQL are available on request.</p>
 <div class="tablewrap">
 <table>
   <tr><th>Tool</th><th>Version / mode</th></tr>
-  <tr class="us"><td>pgrecon</td><td>0.7.1, <code>pgrecon convert</code> from an offline dump; re-measured 2026-09-15 on the eight public schemas by the repository's <a href="https://github.com/Muzzammil242/pgrecon/actions/workflows/benchmark.yml">Benchmark workflow</a> (<a href="https://github.com/Muzzammil242/pgrecon/actions/runs/34961950545">the run</a>)</td></tr>
+  <tr class="us"><td>pgrecon</td><td>0.7.2, <code>pgrecon convert</code> from an offline dump; re-measured 2026-09-24 on the eight public schemas by the repository's <a href="https://github.com/Muzzammil242/pgrecon/actions/workflows/benchmark.yml">Benchmark workflow</a> (<a href="https://github.com/Muzzammil242/pgrecon/actions/runs/35990699154">the run</a>)</td></tr>
   <tr><td>CYBERTEC ora_migrator</td><td>current release, August 2026, over oracle_fdw 2.9.0 (Oracle Instant Client 23)</td></tr>
   <tr><td>Dalibo PostgreSQL Migrator</td><td>1.0.0 (released 2026-09-04) with transqlate 0.8.0; <code>pg_migrate inspect</code>, <code>convert</code>, <code>dump --schema-only --format plain</code>, connected as SYSTEM, scope set to the eight public schemas; measured 2026-09-19 in a private one-off run with the same job shape as the pgrecon row; the job definition, its log, and the SQL it produced are kept offline and available on request</td></tr>
   <tr><td>Ora2Pg</td><td>v25.0, TYPE=TABLE,VIEW,SEQUENCE,TRIGGER,FUNCTION,PROCEDURE,PACKAGE</td></tr>
@@ -200,8 +200,8 @@ needed beyond its documentation is recorded here.</p>
 <div class="tablewrap">
 <table>
   <tr><th>Converter</th><th>Statements rejected</th><th>Notes</th></tr>
-  <tr class="us"><td><strong>pgrecon 0.7.1</strong></td><td class="n zero">0</td>
-      <td>423 statements over the eight public schemas, re-measured 2026-09-15 in CI; the August round on all nine was also 0; every decline a named residue line</td></tr>
+  <tr class="us"><td><strong>pgrecon 0.7.2</strong></td><td class="n zero">0</td>
+      <td>423 statements over the eight public schemas, re-measured 2026-09-24 in CI; the August round on all nine was also 0; every decline a named residue line</td></tr>
   <tr><td>CYBERTEC ora_migrator</td><td class="n">40</td>
       <td>plus two whole-schema crashes</td></tr>
   <tr><td>Dalibo PostgreSQL Migrator 1.0</td><td class="n">58</td>
@@ -214,17 +214,17 @@ needed beyond its documentation is recorded here.</p>
       <td>clean on HR only; 214 on utPLSQL, 76 on Alexandria, 73 on PLJSON</td></tr>
 </table>
 </div>
-<p class="fine">Coverage, stated with the same precision. At 0.7.1 on
-the eight public schemas (2026-09-15, in CI): 594 objects the
+<p class="fine">Coverage, stated with the same precision. At 0.7.2 on
+the eight public schemas (2026-09-24, in CI): 594 objects the
 converter is answerable for - tables, views, materialized views,
 sequences, synonyms, routines, triggers, indexes, and constraints -
 of which 241 were created in the emitted DDL, 41 percent; 353 were
 declined by name in the residue report; none were lost. Above 95
 percent on HR and CO, 76 percent on RECON_TEST, 81 percent on
 Logger, 40 percent on OE, whose object types nothing converts
-mechanically, and 4 to 25 percent on the package libraries PLJSON,
-utPLSQL, and Alexandria, where the residue points at the package
-flattener. The August round, all nine schemas and a count over every
+mechanically, 25 percent on utPLSQL, 4 percent on PLJSON, and none
+on Alexandria, which is almost entirely packages; on those three
+the residue points at the package flattener. The August round, all nine schemas and a count over every
 object, put the figure at 51 percent. One hierarchical view was
 additionally verified row-for-row against the live Oracle running
 the original.</p>
@@ -239,7 +239,7 @@ against adversarial schemas.</p>
 podman run -d --name pg-target -e POSTGRES_PASSWORD=... postgres:16
 # install HR/OE/CO from db-sample-schemas v21.1, the four projects
 # from their repositories, RECON_TEST from this repo's fixture
-pip install pgrecon==0.7.1      # the version the pgrecon row was measured with
+pip install pgrecon==0.7.2      # the version the pgrecon row was measured with
 pgrecon script            # extraction script; run per schema via sqlplus
 pgrecon load dump_dir --db est.db
 pgrecon convert --db est.db
@@ -250,7 +250,7 @@ workflow</a> from the Actions tab: it starts Oracle XE 21c and
 PostgreSQL 16 inside the job, installs the eight public schemas,
 extracts, converts, applies, and prints the table above with the
 count of statements rejected and the coverage per schema. That is
-how the 2026-09-15 numbers were produced, and the run, its logs, and
+how the 2026-09-24 numbers were produced, and the run, its logs, and
 every dump, DDL file, and residue report it made are public.</p>
 <p>Run each competing tool per its own documentation against the
 same schemas, apply with the same psql invocation, count the same
