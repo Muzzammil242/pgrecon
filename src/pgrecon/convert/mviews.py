@@ -17,7 +17,8 @@ from sqlglot.transforms import eliminate_join_marks
 from pgrecon.convert.identifiers import _fold_identifiers, ident
 from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
-from pgrecon.convert.views import _fold_rownum, _view_guard
+from pgrecon.convert.tables import _column_families
+from pgrecon.convert.views import _fold_rownum, _typed_column_guard, _view_guard
 from pgrecon.inventory.loader import PARSE_NORMALIZATIONS
 
 
@@ -51,6 +52,14 @@ def _emit_mviews(
     queries = mview_queries(conn)
     if not queries:
         return 0
+
+    # Column families of the converted tables, for the type-aware
+    # guards the plain views run too.
+    by_upper = {t.upper(): (o, t) for (o, t) in emitted}
+
+    def families(table: str) -> dict[str, str]:
+        found = by_upper.get(table.upper())
+        return _column_families(conn, *found) if found else {}
 
     count = 0
     for (owner, name), r in sorted(queries.items()):
@@ -140,7 +149,9 @@ def _emit_mviews(
                     )
                 )
                 continue
-        guard = _view_guard(tree, name, emitted, dropped, created_views)
+        guard = _view_guard(
+            tree, name, emitted, dropped, created_views
+        ) or _typed_column_guard(tree, name, families)
         if guard is not None:
             residue.append(Residue(owner, raw, "materialized view", guard))
             continue

@@ -17,6 +17,7 @@ from pgrecon.convert.identifiers import (
 )
 from pgrecon.convert.namespace import NameRegistry
 from pgrecon.convert.residue import Residue
+from pgrecon.convert.typemap import UNINDEXABLE
 from pgrecon.inventory.loader import PARSE_NORMALIZATIONS
 
 _VIEW_HEADER_NOISE = re.compile(
@@ -134,6 +135,17 @@ def _view_guard(
     return None
 
 
+def _source_families(
+    tree: Expr, view_name: str, families: Callable[[str], dict[str, str]]
+) -> dict[str, str] | None:
+    """Column families of the query's one source table, or None when
+    the query reads more than one table."""
+    sources = {t.name.upper() for t in tree.find_all(exp.Table)} - {view_name.upper()}
+    if len(sources) != 1:
+        return None
+    return families(next(iter(sources)))
+
+
 def _date_column_guard(
     tree: Expr, view_name: str, families: Callable[[str], dict[str, str]]
 ) -> str | None:
@@ -144,13 +156,145 @@ def _date_column_guard(
     plus a number, or SYSDATE minus a number column, declines by name
     instead of failing at CREATE VIEW.
     """
-    sources = {t.name.upper() for t in tree.find_all(exp.Table)} - {view_name.upper()}
-    if len(sources) != 1:
+    known = _source_families(tree, view_name, families)
+    if known is None:
         return None
-    known = families(next(iter(sources)))
     dates = {c for c, f in known.items() if f == "datetime"}
     numbers = {c for c, f in known.items() if f == "number"}
     return _date_arithmetic_guard(tree, dates, numbers)
+
+
+# Operators that need an equality or ordering operator for their
+# operands; MIN and MAX order their argument.
+_COMPARING = (
+    exp.EQ,
+    exp.NEQ,
+    exp.GT,
+    exp.GTE,
+    exp.LT,
+    exp.LTE,
+    exp.NullSafeEQ,
+    exp.NullSafeNEQ,
+    exp.In,
+    exp.Between,
+    exp.Min,
+    exp.Max,
+)
+
+# Wrappers that leave a grouping or comparison key the column itself.
+_TRANSPARENT = (exp.Paren, exp.Tuple, exp.Rollup, exp.Cube, exp.GroupingSets)
+
+
+def _ordering_use(column: exp.Column) -> str | None:
+    """How the query makes PostgreSQL sort or compare this column's
+    values, or None when it only carries them."""
+    node: Expr = column
+    while isinstance(node.parent, _TRANSPARENT):
+        node = node.parent
+    parent = node.parent
+    if isinstance(parent, exp.Ordered):
+        return "sorts by"
+    if isinstance(parent, exp.Group):
+        return "groups by"
+    if isinstance(parent, exp.Window):
+        partition = parent.args.get("partition_by") or []
+        return "partitions by" if any(p is node for p in partition) else None
+    if isinstance(parent, exp.Distinct):
+        return "deduplicates on"
+    if isinstance(parent, exp.DecodeCase):
+        # DECODE(expr, search, result, ..., default) compares the
+        # expression with every search that is not NULL; a NULL search
+        # renders as IS NULL. Results and the default are carried.
+        args = parent.expressions
+        at = next((i for i, a in enumerate(args) if a is node), 0)
+        default = len(args) - 1 if len(args) % 2 == 0 else None
+        searches = [a for i, a in enumerate(args) if i % 2 == 1 and i != default]
+        if at == 0:
+            null_only = all(isinstance(s, exp.Null) for s in searches)
+            return None if null_only else "compares"
+        return "compares" if at % 2 == 1 and at != default else None
+    if isinstance(parent, _COMPARING):
+        return "compares"
+    # A projected column is sorted or compared by the query around it:
+    # SELECT DISTINCT, a set operation that removes duplicates, or an
+    # ORDER BY naming the output by position or alias.
+    item: Expr = node
+    if isinstance(parent, exp.Alias):
+        item, parent = parent, parent.parent
+    if not isinstance(parent, exp.Select):
+        return None
+    outputs = parent.expressions
+    position = next((i for i, e in enumerate(outputs, 1) if e is item), None)
+    if position is None:
+        return None
+    if parent.args.get("distinct") is not None:
+        return "deduplicates on"
+    above = parent.parent
+    while isinstance(above, exp.Subquery | exp.Paren):
+        above = above.parent
+    if isinstance(above, exp.Intersect | exp.Except) or (
+        isinstance(above, exp.Union) and above.args.get("distinct")
+    ):
+        return "deduplicates on"
+    order = parent.args.get("order")
+    alias = item.alias.upper() if isinstance(item, exp.Alias) else None
+    for ordered in order.expressions if order is not None else []:
+        key = ordered.this
+        by_position = (
+            isinstance(key, exp.Literal)
+            and not key.is_string
+            and key.this == str(position)
+        )
+        by_alias = (
+            alias is not None
+            and isinstance(key, exp.Column)
+            and not key.table
+            and key.name.upper() == alias
+        )
+        if by_position or by_alias:
+            return "sorts by"
+    return None
+
+
+def _unorderable_column_guard(
+    tree: Expr, view_name: str, families: Callable[[str], dict[str, str]]
+) -> str | None:
+    """Why a query that sorts or compares an xml or json column cannot
+    ship.
+
+    PostgreSQL has no ordering or equality operator for either type,
+    so ORDER BY, GROUP BY, DISTINCT, a deduplicating set operation, a
+    window partition, MIN or MAX, or a comparison over such a column
+    fails at CREATE VIEW. Oracle refuses the same shapes on XMLType, so
+    only a view that never compiled carries one; either way it declines
+    by name instead of shipping. A column wrapped in a function is left
+    alone: the function's result is what gets sorted.
+    """
+    known = _source_families(tree, view_name, families) or {}
+    blocked = {c: f for c, f in known.items() if f in UNINDEXABLE}
+    if not blocked:
+        return None
+    for column in tree.find_all(exp.Column):
+        name = column.name.upper()
+        if name not in blocked:
+            continue
+        use = _ordering_use(column)
+        if use is not None:
+            family = blocked[name]
+            return (
+                f"{use} {name}, a column that lands as {family}; PostgreSQL"
+                f" cannot sort or compare {family} - rewrite by hand"
+            )
+    return None
+
+
+def _typed_column_guard(
+    tree: Expr, view_name: str, families: Callable[[str], dict[str, str]]
+) -> str | None:
+    """Every guard that needs the source table's column types."""
+    return _date_column_guard(tree, view_name, families) or _unorderable_column_guard(
+        tree, view_name, families
+    )
 
 
 def _connect_by_view(
@@ -448,7 +592,7 @@ def _emit_views(
                     continue
                 guard = _view_guard(
                     folded, name, emitted, dropped, created_views
-                ) or _date_column_guard(folded, name, families)
+                ) or _typed_column_guard(folded, name, families)
                 if guard is not None:
                     residue.append(Residue(r["owner"], name, "view", guard))
                     continue
@@ -480,7 +624,7 @@ def _emit_views(
             continue
         guard = _view_guard(
             tree, name, emitted, dropped, created_views
-        ) or _date_column_guard(tree, name, families)
+        ) or _typed_column_guard(tree, name, families)
         if guard is not None:
             residue.append(Residue(r["owner"], name, "view", guard))
             continue

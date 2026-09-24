@@ -1658,6 +1658,94 @@ def test_rownum_top_n_becomes_limit_or_declines(facts_db: Path) -> None:
     assert "outside a top-N bound" in reasons["V_ROWNUM_COL"]
 
 
+def test_sorting_or_comparing_xml_declines_by_name(facts_db: Path) -> None:
+    # PostgreSQL has no ordering or equality operator for xml; the
+    # nightly fuzz found a top-N view sorting an XMLTYPE column
+    # (seed 6092407) and PostgreSQL rejected the CREATE VIEW.
+    conn = sqlite3.connect(facts_db)
+    conn.executescript(
+        """
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'EMP', 'SPEC', 6, 'XMLTYPE', 2000, NULL, NULL, 'Y');
+        INSERT INTO ddl (owner, name, type, ddl, parse_ok, parse_quality) VALUES
+          ('HR', 'V_XML_TOP', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_XML_TOP" AS SELECT "SPEC" FROM'
+           || ' (SELECT "SPEC" FROM "HR"."EMP" ORDER BY "SPEC")'
+           || ' WHERE ROWNUM <= 10', 1, 'full'),
+          ('HR', 'V_XML_GROUP', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_XML_GROUP" AS SELECT "SPEC",'
+           || ' COUNT(*) AS N FROM "HR"."EMP" GROUP BY "SPEC"', 1, 'full'),
+          ('HR', 'V_XML_DISTINCT', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_XML_DISTINCT" AS SELECT DISTINCT'
+           || ' "SPEC" FROM "HR"."EMP"', 1, 'full'),
+          ('HR', 'V_XML_POSITION', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_XML_POSITION" AS SELECT "SPEC" AS DOC'
+           || ' FROM "HR"."EMP" ORDER BY 1', 1, 'full'),
+          ('HR', 'V_XML_MINUS', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_XML_MINUS" AS SELECT "SPEC"'
+           || ' FROM "HR"."EMP" MINUS SELECT "SPEC" FROM "HR"."EMP"'
+           || ' WHERE "SALARY" > 0', 1, 'full'),
+          ('HR', 'V_XML_DECODE', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_XML_DECODE" AS SELECT'
+           || ' DECODE("SPEC", ''<a/>'', 0, 1) AS IS_A FROM "HR"."EMP"', 1, 'full'),
+          ('HR', 'V_XML_CARRIED', 'VIEW',
+           'CREATE OR REPLACE VIEW "HR"."V_XML_CARRIED" AS SELECT "EMP_ID",'
+           || ' DECODE("EMP_ID", 1, "SPEC") AS FIRST_SPEC,'
+           || ' DECODE("SPEC", NULL, 0, 1) AS HAS_SPEC, "SPEC" FROM "HR"."EMP"'
+           || ' WHERE "SPEC" IS NOT NULL ORDER BY "EMP_ID"', 1, 'full');
+        INSERT INTO tables (owner, table_name, temporary) VALUES
+          ('HR', 'MV_XML', 'N'), ('HR', 'MV_DUE', 'N');
+        INSERT INTO columns
+          (owner, table_name, column_name, position, data_type,
+           data_length, data_precision, data_scale, nullable) VALUES
+          ('HR', 'MV_XML', 'SPEC', 1, 'XMLTYPE', 2000, NULL, NULL, 'Y'),
+          ('HR', 'MV_XML', 'N', 2, 'NUMBER', 22, NULL, NULL, 'Y'),
+          ('HR', 'MV_DUE', 'ENAME', 1, 'VARCHAR2', 50, NULL, NULL, 'Y'),
+          ('HR', 'MV_DUE', 'DUE', 2, 'DATE', 7, NULL, NULL, 'Y');
+        INSERT INTO mviews
+          (owner, mview_name, rewrite_enabled, refresh_method, query) VALUES
+          ('HR', 'MV_XML', 'N', 'COMPLETE',
+           'SELECT spec, COUNT(*) AS n FROM emp GROUP BY spec'),
+          ('HR', 'MV_DUE', 'N', 'COMPLETE',
+           'SELECT ename, hired + 30 AS due FROM emp');
+        """
+    )
+    conn.commit()
+    conn.close()
+    result = convert_schema(facts_db)
+    sql = result.sql
+    carried = sql[sql.index("CREATE OR REPLACE VIEW v_xml_carried") :].split(";")[0]
+    assert "WHEN spec IS NULL THEN 0" in carried
+    assert "NOT spec IS NULL" in carried and "ORDER BY" in carried
+    for name in (
+        "v_xml_top",
+        "v_xml_group",
+        "v_xml_distinct",
+        "v_xml_position",
+        "v_xml_minus",
+        "v_xml_decode",
+        "mv_xml",
+        "mv_due",
+    ):
+        assert f"VIEW {name} " not in sql
+    reasons = {
+        r.object_name: r.reason
+        for r in result.residue
+        if r.kind in ("view", "materialized view")
+    }
+    assert "sorts by SPEC, a column that lands as xml" in reasons["V_XML_TOP"]
+    assert "groups by SPEC" in reasons["V_XML_GROUP"]
+    assert "deduplicates on SPEC" in reasons["V_XML_DISTINCT"]
+    assert "sorts by SPEC" in reasons["V_XML_POSITION"]
+    assert "deduplicates on SPEC" in reasons["V_XML_MINUS"]
+    assert "compares SPEC" in reasons["V_XML_DECODE"]
+    assert "cannot sort or compare xml" in reasons["MV_XML"]
+    assert "HIRED is a date column" in reasons["MV_DUE"]
+    assert "V_XML_CARRIED" not in reasons
+
+
 def test_public_grant_option_is_dropped_with_a_note(facts_db: Path) -> None:
     conn = sqlite3.connect(facts_db)
     conn.execute(
