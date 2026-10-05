@@ -1219,7 +1219,8 @@ def test_partition_by_virtual_or_dropped_column_is_declined(tmp_path: Path) -> N
     conn.executescript(
         """
         INSERT INTO tables (owner, table_name, temporary) VALUES
-          ('HR', 'BY_VIRTUAL', 'N'), ('HR', 'BY_GONE', 'N');
+          ('HR', 'BY_VIRTUAL', 'N'), ('HR', 'BY_GONE', 'N'),
+          ('HR', 'SUB_BY_VIRTUAL', 'N');
         INSERT INTO columns
           (owner, table_name, column_name, position, data_type,
            data_length, data_precision, data_scale, nullable) VALUES
@@ -1227,33 +1228,56 @@ def test_partition_by_virtual_or_dropped_column_is_declined(tmp_path: Path) -> N
           ('HR', 'BY_VIRTUAL', 'PRICE', 2, 'NUMBER', 22, 10, 2, 'Y'),
           ('HR', 'BY_VIRTUAL', 'BAND',  3, 'NUMBER', 22, 10, 0, 'Y'),
           ('HR', 'BY_GONE', 'ID',  1, 'NUMBER', 22, 10, 0, 'N'),
-          ('HR', 'BY_GONE', 'DOC', 2, 'BFILE', 530, NULL, NULL, 'Y');
+          ('HR', 'BY_GONE', 'DOC', 2, 'BFILE', 530, NULL, NULL, 'Y'),
+          ('HR', 'SUB_BY_VIRTUAL', 'ID',    1, 'NUMBER',   22, 10, 0, 'N'),
+          ('HR', 'SUB_BY_VIRTUAL', 'STATE', 2, 'VARCHAR2', 10, NULL, NULL, 'Y'),
+          ('HR', 'SUB_BY_VIRTUAL', 'BUCKET', 3, 'VARCHAR2', 10, NULL, NULL, 'Y');
         INSERT INTO column_defaults (owner, table_name, column_name, default_text,
                                      virtual, truncated)
-          VALUES ('HR', 'BY_VIRTUAL', 'BAND', '"PRICE" * 2', 'YES', 0);
+          VALUES ('HR', 'BY_VIRTUAL', 'BAND', '"PRICE" * 2', 'YES', 0),
+                 ('HR', 'SUB_BY_VIRTUAL', 'BUCKET', 'UPPER("STATE")', 'YES', 0);
         INSERT INTO part_tables (owner, table_name, partitioning_type,
                                  subpartitioning_type, partition_count, interval)
           VALUES ('HR', 'BY_VIRTUAL', 'LIST', 'NONE', 1, NULL),
-                 ('HR', 'BY_GONE', 'HASH', 'NONE', 2, NULL);
+                 ('HR', 'BY_GONE', 'HASH', 'NONE', 2, NULL),
+                 ('HR', 'SUB_BY_VIRTUAL', 'RANGE', 'LIST', 1, NULL);
         INSERT INTO part_key_columns (owner, table_name, column_name, position)
-          VALUES ('HR', 'BY_VIRTUAL', 'BAND', 1), ('HR', 'BY_GONE', 'DOC', 1);
+          VALUES ('HR', 'BY_VIRTUAL', 'BAND', 1), ('HR', 'BY_GONE', 'DOC', 1),
+                 ('HR', 'SUB_BY_VIRTUAL', 'ID', 1);
+        INSERT INTO part_subkey_columns (owner, table_name, column_name, position)
+          VALUES ('HR', 'SUB_BY_VIRTUAL', 'BUCKET', 1);
         INSERT INTO part_partitions (owner, table_name, partition_name, position,
                                      high_value, truncated)
           VALUES ('HR', 'BY_VIRTUAL', 'P1', 1, '1, 2', 0),
                  ('HR', 'BY_GONE', 'P1', 1, NULL, 0),
-                 ('HR', 'BY_GONE', 'P2', 2, NULL, 0);
+                 ('HR', 'BY_GONE', 'P2', 2, NULL, 0),
+                 ('HR', 'SUB_BY_VIRTUAL', 'P_ALL', 1, 'MAXVALUE', 0);
+        INSERT INTO part_subpartitions
+          (owner, table_name, partition_name, subpartition_name, position,
+           high_value, truncated) VALUES
+          ('HR', 'SUB_BY_VIRTUAL', 'P_ALL', 'SP_A', 1, '''A''', 0),
+          ('HR', 'SUB_BY_VIRTUAL', 'P_ALL', 'SP_REST', 2, 'DEFAULT', 0);
         """
     )
     conn.commit()
     conn.close()
     result = convert_schema(db)
+    # The nightly fuzz (seed 6100307, 2026-10-03) found the subpartition
+    # case: PostgreSQL rejects a generated column in any partition key,
+    # and the subpartition key is the key of every first-level child.
     assert "PARTITION BY" not in result.sql
     assert "GENERATED ALWAYS AS (price * 2) STORED" in result.sql
+    assert "GENERATED ALWAYS AS (UPPER(state)) STORED" in result.sql
+    assert "CREATE TABLE sub_by_virtual (" in result.sql
+    assert "p_all" not in result.sql
     reasons = {
         r.object_name: r.reason for r in result.residue if r.kind == "partitioning"
     }
-    assert "virtual column" in reasons["BY_VIRTUAL"]
+    assert reasons["BY_VIRTUAL"].startswith("partition key BAND is a virtual column")
     assert "was not converted" in reasons["BY_GONE"]
+    assert reasons["SUB_BY_VIRTUAL"].startswith(
+        "subpartition key BUCKET is a virtual column"
+    )
 
 
 def test_trunc_over_dates_declines_where_types_are_known(facts_db: Path) -> None:

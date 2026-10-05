@@ -443,22 +443,30 @@ def emit_tables(
         meta, part_reason = _partition_meta(conn, owner, table)
         if meta is not None:
             # PostgreSQL cannot partition by a generated column, nor by
-            # a column that did not convert.
+            # a column that did not convert, at either level: the
+            # subpartition key is a partition key of every first-level
+            # child.
             gone = dropped.get((owner, table), set())
-            for k in conn.execute(
-                "SELECT column_name FROM part_key_columns"
-                " WHERE owner = ? AND table_name = ? ORDER BY position",
-                (owner, table),
-            ):
-                key = (k["column_name"] or "").upper()
-                if key in virtual_columns:
-                    part_reason = (
-                        f"partition key {key} is a virtual column; PostgreSQL"
-                        " cannot partition by a generated column - partition by"
-                        " the expression itself by hand"
-                    )
-                elif key in gone or key not in kept_columns:
-                    part_reason = f"partition key {key} was not converted"
+            levels = [("partition key", "part_key_columns")]
+            if meta.subtype != "NONE":
+                levels.append(("subpartition key", "part_subkey_columns"))
+            for label, fact_table in levels:
+                for k in conn.execute(
+                    f"SELECT column_name FROM {fact_table}"
+                    " WHERE owner = ? AND table_name = ? ORDER BY position",
+                    (owner, table),
+                ):
+                    key = (k["column_name"] or "").upper()
+                    if key in virtual_columns:
+                        part_reason = (
+                            f"{label} {key} is a virtual column; PostgreSQL"
+                            " cannot partition by a generated column -"
+                            " partition by the expression itself by hand"
+                        )
+                    elif key in gone or key not in kept_columns:
+                        part_reason = f"{label} {key} was not converted"
+                    if part_reason is not None:
+                        break
                 if part_reason is not None:
                     meta = None
                     break
