@@ -2,6 +2,18 @@
 
 Release notes are written by hand, grouped by area. Dates use YYYY-MM-DD.
 
+## 0.7.3 - 2026-10-05
+
+- PostgreSQL rejects a generated column in any partition key, and the
+  subpartition key is the partition key of every first-level child.
+  The guard that declines a table partitioned by a virtual column read
+  the first-level key only; a composite layout with a virtual column
+  as its subpartition key emitted PARTITION BY LIST over a GENERATED
+  column, and PostgreSQL refused it. The nightly schema fuzz found the
+  shape on 2026-10-03. The guard now covers both levels, with the same
+  outcome: the table is emitted unpartitioned and the residue names
+  the key, the level, and the rewrite to do by hand.
+
 ## 0.7.2 - 2026-09-24
 
 - PostgreSQL has no ordering or equality operator for xml or json. A
